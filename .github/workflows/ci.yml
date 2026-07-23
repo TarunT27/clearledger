@@ -1,0 +1,188 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: API · Java 21 / PostgreSQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: clearledger_test
+          POSTGRES_USER: clearledger
+          POSTGRES_PASSWORD: clearledger_ci_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U clearledger -d clearledger_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/clearledger_test
+      SPRING_DATASOURCE_USERNAME: clearledger
+      SPRING_DATASOURCE_PASSWORD: clearledger_ci_only
+      TESTCONTAINERS_RYUK_DISABLED: "false"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Verify API
+        run: |
+          chmod +x mvnw
+          ./mvnw --batch-mode --no-transfer-progress verify
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: api-coverage
+          path: target/site/jacoco/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  web:
+    name: Web · lint / test / build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+        env:
+          VITE_API_BASE_URL: /api/v1
+
+      - name: Upload web build
+        uses: actions/upload-artifact@v5
+        with:
+          name: web-dist
+          path: frontend/dist/
+          retention-days: 7
+
+  containers:
+    name: Container · ${{ matrix.component }}
+    needs: [api, web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: api
+            dockerfile: Dockerfile.api
+          - component: web
+            dockerfile: Dockerfile.web
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: false
+          tags: clearledger-${{ matrix.component }}:ci
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+
+  e2e:
+    name: E2E · Playwright
+    needs: [api, web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      POSTGRES_PASSWORD: clearledger_e2e_only
+      WEB_PORT: "8088"
+      PLAYWRIGHT_BASE_URL: http://127.0.0.1:8088
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Start application
+        run: docker compose up --build --wait --wait-timeout 180
+
+      - name: Run browser scenarios
+        working-directory: frontend
+        run: npm run e2e
+
+      - name: Capture service logs
+        if: failure()
+        run: docker compose logs --no-color > compose.log
+
+      - name: Upload E2E evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-evidence
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+            compose.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Stop application
+        if: always()
+        run: docker compose down --volumes
