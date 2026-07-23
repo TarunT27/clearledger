@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { recipientIdFor } from './api'
+import { normalizeBackendStatus, recipientIdFor } from './api'
 
 describe('production API contract', () => {
   it('maps a recipient label to a stable backend UUID', () => {
@@ -11,5 +11,10 @@ describe('production API contract', () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     )
     expect(recipientIdFor('Summit Office LLC')).not.toBe(first)
+  })
+
+  it('keeps an unresolved timeout status unknown when the backend is pending', () => {
+    expect(normalizeBackendStatus('PENDING', 'Unknown')).toBe('Unknown')
+    expect(normalizeBackendStatus('APPROVED', 'Unknown')).toBe('Approved')
   })
 })

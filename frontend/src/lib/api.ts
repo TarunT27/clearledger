@@ -48,6 +48,12 @@ interface BackendScenario {
   readonly duplicateDetected?: boolean
 }
 
+export function normalizeBackendStatus(source: string | undefined, fallback: string): string {
+  if (!source) return fallback
+  if (source === 'PENDING' && fallback === 'Unknown') return fallback
+  return source.charAt(0) + source.slice(1).toLowerCase()
+}
+
 export function recipientIdFor(label: string): string {
   let hash = 0x811c9dc5
   for (const character of label.trim().toLowerCase()) {
@@ -63,9 +69,7 @@ export function recipientIdFor(label: string): string {
 function normalizeBackendPayment(source: BackendPayment, fallback: Payment): Payment {
   const decision = (source.riskDecision ?? fallback.riskEvidence.decision) as PaymentState
   const amount = typeof source.amountMinor === 'number' ? source.amountMinor / 100 : fallback.amount
-  const status = source.status
-    ? source.status.charAt(0) + source.status.slice(1).toLowerCase()
-    : fallback.status
+  const status = normalizeBackendStatus(source.status, fallback.status)
   return {
     ...fallback,
     id: source.id ?? fallback.id,
