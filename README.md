@@ -183,7 +183,7 @@ src/main/java/            payment, risk, ledger, reconciliation, API
 src/main/resources/       configuration and Flyway migrations
 src/test/                 unit and PostgreSQL Testcontainers integration tests
 frontend/                 React operations console and Playwright scenarios
-docs/                     architecture, demo runbook, and design assets
+docs/                     architecture, demo runbook, and application screenshots
 .github/workflows/        CI, security analysis, dependency review, releases
 Dockerfile.api            layered non-root JVM image
 Dockerfile.web            static frontend image with nginx reverse proxy
@@ -205,22 +205,6 @@ ghcr.io/<owner>/<repository>-web:1.0.0
 ```
 
 Published images include GitHub build-provenance attestations.
-
-## Design concepts
-
-The final console direction combines the dense operational clarity of the command
-center with the ledger and reconciliation storytelling explored below.
-
-<table>
-  <tr>
-    <td><img src="docs/images/concepts/ledger-focus.png" alt="Ledger-focused ClearLedger concept"></td>
-    <td><img src="docs/images/concepts/reconciliation-focus.png" alt="Reconciliation-focused ClearLedger concept"></td>
-  </tr>
-  <tr>
-    <td><img src="docs/images/concepts/modern-bank.png" alt="Modern banking ClearLedger concept"></td>
-    <td><img src="docs/images/concepts/command-center.png" alt="Command-center ClearLedger concept"></td>
-  </tr>
-</table>
 
 ## Security and license
 
