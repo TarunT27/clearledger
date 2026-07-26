@@ -1,176 +1,156 @@
-import { AlertCircle, CheckCircle2, X } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
-import { AppShell } from './components/AppShell'
-import { EvidenceRail } from './components/EvidenceRail'
-import { PaymentComposer } from './components/PaymentComposer'
-import { PaymentTable } from './components/PaymentTable'
-import { RecoveryTimeline } from './components/RecoveryTimeline'
-import { ScenarioControls } from './components/ScenarioControls'
-import { StatusPill } from './components/StatusPill'
-import { api } from './lib/api'
-import type { CreatePaymentInput, ScenarioName, ScenarioResult } from './types'
+import { CheckCircle2, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { AppShell, type ViewId } from './components/AppShell'
+import {
+  addOperationsPayment,
+  createOperationsFixture,
+  repairReconciliationCase,
+  type AddOperationsPaymentInput,
+  type OperationsFixture,
+} from './lib/operationsData'
+import { AuditPage } from './pages/AuditPage'
+import { LedgerPage } from './pages/LedgerPage'
+import { OverviewPage } from './pages/OverviewPage'
+import { PaymentsPage } from './pages/PaymentsPage'
+import { ReconciliationPage } from './pages/ReconciliationPage'
+import { RiskPage } from './pages/RiskPage'
+import { ScenarioLabPage } from './pages/ScenarioLabPage'
 
-type ActionName = 'initial' | 'scenario' | 'payment' | 'reconciliation' | null
+const VALID_VIEWS: readonly ViewId[] = [
+  'overview',
+  'payments',
+  'ledger',
+  'risk',
+  'reconciliation',
+  'audit-log',
+  'scenario-lab',
+]
+
+function viewFromHash(): ViewId {
+  const candidate = window.location.hash.slice(1)
+  return VALID_VIEWS.includes(candidate as ViewId) ? candidate as ViewId : 'overview'
+}
+
+function navigate(view: ViewId) {
+  if (window.location.hash === `#${view}`) {
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+    return
+  }
+  window.location.hash = view
+}
 
 export function App() {
-  const [result, setResult] = useState<ScenarioResult | null>(null)
-  const [selectedId, setSelectedId] = useState('')
-  const [action, setAction] = useState<ActionName>('initial')
-  const [error, setError] = useState('')
+  const [activeView, setActiveView] = useState<ViewId>(viewFromHash)
+  const [fixture, setFixture] = useState<OperationsFixture>(createOperationsFixture)
+  const [globalQuery, setGlobalQuery] = useState('')
+  const [selectedPaymentId, setSelectedPaymentId] = useState<string | null>(null)
   const [notice, setNotice] = useState('')
 
   useEffect(() => {
-    let active = true
-    api.getPayments()
-      .then((data) => {
-        if (!active) return
-        setResult(data)
-        setSelectedId(data.selectedPaymentId)
-      })
-      .catch(() => {
-        if (active) setError('The operations console could not load payment data.')
-      })
-      .finally(() => {
-        if (active) setAction(null)
-      })
-    return () => {
-      active = false
+    function handleHashChange() {
+      const nextView = viewFromHash()
+      setActiveView(nextView)
+      if (!window.location.hash || window.location.hash === '#') {
+        window.history.replaceState(null, '', '#overview')
+      }
     }
+
+    handleHashChange()
+    window.addEventListener('hashchange', handleHashChange)
+    return () => window.removeEventListener('hashchange', handleHashChange)
   }, [])
 
-  const selectedPayment = useMemo(
-    () => result?.payments.find((payment) => payment.id === selectedId) ?? result?.payments[0],
-    [result, selectedId],
-  )
-
-  async function execute(actionName: Exclude<ActionName, 'initial' | null>, operation: () => Promise<ScenarioResult>, success: string) {
-    setAction(actionName)
-    setError('')
-    setNotice('')
-    try {
-      const data = await operation()
-      setResult(data)
-      setSelectedId(data.selectedPaymentId)
-      setNotice(success)
-    } catch {
-      setError('The operation was not completed. No unsafe state change was applied.')
-    } finally {
-      setAction(null)
-    }
+  function searchPayments(query: string) {
+    setGlobalQuery(query)
+    setSelectedPaymentId(null)
+    navigate('payments')
   }
 
-  function runScenario(scenario: ScenarioName) {
-    void execute(
-      'scenario',
-      () => api.runScenario(scenario),
-      scenario === 'duplicate'
-        ? 'Duplicate replayed safely — one ledger entry remains.'
-        : scenario === 'timeout'
-          ? 'Timeout reproduced — reconciliation is required.'
-          : 'Normal payment completed and balanced.',
-    )
+  function openPayment(paymentId: string) {
+    setSelectedPaymentId(paymentId)
+    setGlobalQuery('')
+    navigate('payments')
   }
 
-  async function createPayment(input: CreatePaymentInput) {
-    await execute('payment', () => api.createPayment(input), 'Payment approved and ledger balanced.')
+  function createPayment(input: AddOperationsPaymentInput) {
+    const nextFixture = addOperationsPayment(fixture, input)
+    const newPayment = nextFixture.payments[0]
+    setFixture(nextFixture)
+    setSelectedPaymentId(newPayment?.id ?? null)
+    setNotice(newPayment
+      ? `${newPayment.id} approved and posted to a balanced journal.`
+      : 'Payment created.')
   }
 
-  function reconcile() {
-    void execute(
-      'reconciliation',
-      () => api.reconcile(),
-      'Safe repair completed — no duplicate ledger write.',
-    )
+  function repairCase(caseId: string) {
+    const target = fixture.reconciliationCases.find((item) => item.id === caseId)
+    const nextFixture = repairReconciliationCase(fixture, caseId)
+    setFixture(nextFixture)
+    setNotice(target
+      ? `${target.paymentId} safely repaired using its existing journal.`
+      : 'Reconciliation repair completed.')
   }
 
-  if (action === 'initial' && !result) {
-    return (
-      <div className="splash-screen">
-        <img src="/assets/clearledger-mark.png" alt="" />
-        <span className="splash-screen__brand">ClearLedger</span>
-        <span>Opening payment operations…</span>
-      </div>
-    )
+  let page
+  switch (activeView) {
+    case 'payments':
+      page = (
+        <PaymentsPage
+          data={fixture}
+          initialQuery={globalQuery}
+          selectedPaymentId={selectedPaymentId}
+          onSelectPayment={setSelectedPaymentId}
+          onCreatePayment={createPayment}
+          onClearGlobalQuery={() => setGlobalQuery('')}
+        />
+      )
+      break
+    case 'ledger':
+      page = <LedgerPage fixture={fixture} onSelectPayment={openPayment} />
+      break
+    case 'risk':
+      page = <RiskPage fixture={fixture} onSelectPayment={openPayment} />
+      break
+    case 'reconciliation':
+      page = (
+        <ReconciliationPage
+          fixture={fixture}
+          onRepair={repairCase}
+          onSelectPayment={openPayment}
+        />
+      )
+      break
+    case 'audit-log':
+      page = <AuditPage fixture={fixture} onSelectPayment={openPayment} />
+      break
+    case 'scenario-lab':
+      page = <ScenarioLabPage />
+      break
+    case 'overview':
+    default:
+      page = (
+        <OverviewPage
+          data={fixture}
+          onNavigate={navigate}
+          onSelectPayment={openPayment}
+        />
+      )
+      break
   }
-
-  if (!result || !selectedPayment) {
-    return (
-      <div className="fatal-state" role="alert">
-        <AlertCircle size={30} />
-        <h1>Payment operations unavailable</h1>
-        <p>{error || 'No payment data was returned.'}</p>
-        <button type="button" className="button button--primary" onClick={() => window.location.reload()}>Retry</button>
-      </div>
-    )
-  }
-
-  const isBusy = action !== null
-  const primaryTone = selectedPayment.statusTone === 'danger'
-    ? 'danger'
-    : result.scenario === 'timeout' && !result.reconciliation?.repaired
-      ? 'warning'
-      : 'success'
 
   return (
-    <AppShell>
-      <div className="operations-toolbar">
-        <PaymentComposer busy={isBusy} onSubmit={createPayment} />
-        <ScenarioControls active={result.scenario} busy={isBusy} onRun={runScenario} />
-      </div>
-
-      <div className="dashboard-grid">
-        <section className="recovery-workspace" aria-labelledby="payment-heading">
-          <header className="payment-heading">
-            <div>
-              <h1 id="payment-heading">{result.heading}</h1>
-              <p>{result.summary}</p>
-              <div className="payment-identifiers">
-                <code>{selectedPayment.id}</code>
-                <StatusPill tone={primaryTone}>
-                  {selectedPayment.status === 'Unknown' ? 'Status unknown' : selectedPayment.status}
-                </StatusPill>
-                {result.reconciliation && !result.reconciliation.repaired ? (
-                  <StatusPill tone="warning">Reconciliation open</StatusPill>
-                ) : null}
-              </div>
-            </div>
-            <dl className="payment-meta">
-              <div><dt>Idempotency key</dt><dd>{selectedPayment.idempotencyKey}</dd></div>
-              <div><dt>Version</dt><dd>v{selectedPayment.version}</dd></div>
-            </dl>
-          </header>
-
-          <RecoveryTimeline events={selectedPayment.audit} />
-          <PaymentTable
-            payments={result.payments}
-            selectedId={selectedPayment.id}
-            onSelect={setSelectedId}
-          />
-        </section>
-
-        <EvidenceRail
-          payment={selectedPayment}
-          reconciliation={result.reconciliation}
-          busy={action === 'reconciliation'}
-          onReconcile={reconcile}
-        />
-      </div>
-
+    <AppShell
+      activeView={activeView}
+      environmentLabel={import.meta.env.VITE_DEMO_MODE === 'true' ? 'Demo environment' : 'Local environment'}
+      onGlobalSearch={searchPayments}
+    >
+      {page}
       {notice ? (
         <div className="toast toast--success" role="status">
-          <CheckCircle2 size={18} />
+          <CheckCircle2 size={18} aria-hidden="true" />
           <span>{notice}</span>
           <button type="button" aria-label="Dismiss notification" onClick={() => setNotice('')}>
-            <X size={16} />
-          </button>
-        </div>
-      ) : null}
-      {error ? (
-        <div className="toast toast--danger" role="alert">
-          <AlertCircle size={18} />
-          <span>{error}</span>
-          <button type="button" aria-label="Dismiss error" onClick={() => setError('')}>
-            <X size={16} />
+            <X size={16} aria-hidden="true" />
           </button>
         </div>
       ) : null}

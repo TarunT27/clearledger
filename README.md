@@ -21,6 +21,28 @@ reconciliation worker. The three built-in scenarios make its safety properties v
 > ClearLedger uses fictional counterparties and simulated money. It is a portfolio
 > system, not a bank, payment processor, or production financial product.
 
+## Operations console
+
+The web application is a complete operator workflow rather than a single demo screen:
+
+- **Overview** tracks payment throughput, decision mix, risk-rule activity, and the
+  reconciliation queue.
+- **Payments** provides global search, filters, sorting, pagination, CSV export, payment
+  creation, and a record-specific risk / ledger / audit evidence drawer.
+- **Ledger, Risk, Reconciliation, and Audit log** expose focused workbenches for tracing
+  journals, reviewing policy signals, safely repairing drift, and inspecting append-only
+  events.
+- **Scenario lab** isolates the three deterministic safety demonstrations from the
+  operations dataset.
+
+| Payment operations | Safe reconciliation |
+| --- | --- |
+| ![Searchable payment records](docs/images/payments-browser.png) | ![Compare-and-swap reconciliation evidence](docs/images/reconciliation-browser.png) |
+
+The layout is responsive down to a phone-sized operations view:
+
+![ClearLedger mobile overview](docs/images/mobile-overview.png)
+
 ## What it demonstrates
 
 - Java 21, Spring Boot 4.1, virtual threads, validation, JPA, and Flyway
@@ -61,7 +83,8 @@ docker compose down --volumes
 
 ## Demo the safety story
 
-Use the scenario controls in the console in this order:
+Open **Scenario lab** from the console navigation, then use its scenario controls in
+this order:
 
 | Scenario | What to watch |
 | --- | --- |

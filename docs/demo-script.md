@@ -19,6 +19,9 @@ Open [http://localhost:8088](http://localhost:8088) at a wide desktop viewport. 
 terminal beside the browser so the system behavior and API evidence can be shown
 together.
 
+Start on **Overview** to establish the live operations context, then open **Scenario
+lab** from the left navigation for the deterministic safety demonstrations.
+
 ## Opening — 30 seconds
 
 “ClearLedger simulates the safety boundary of a bank payment system. Every request is
@@ -36,7 +39,7 @@ Point out:
 
 ## Scenario 1: normal payment — 60 seconds
 
-Select **Normal payment**.
+In **Scenario lab**, select **Normal**.
 
 Expected result:
 
@@ -58,7 +61,7 @@ curl --fail-with-body \
 
 ## Scenario 2: duplicate request — 75 seconds
 
-Select **Duplicate request**.
+Select **Duplicate**.
 
 Expected result:
 
@@ -83,7 +86,7 @@ conflict instead of silently returning or creating the wrong payment.
 
 ## Scenario 3: timeout and reconciliation — 120 seconds
 
-Select **Simulated timeout**.
+Select **Timeout**.
 
 Pause on the incomplete state:
 
