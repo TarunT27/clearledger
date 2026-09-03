@@ -1,0 +1,416 @@
+/*
+ * Application shell: a translucent sidebar beside a scrolling content column, with a
+ * toolbar that stays put. The chrome samples what is behind it rather than sitting on an
+ * opaque slab, which is what makes the layout read as a native window rather than a page.
+ */
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.shell[data-collapsed='true'] {
+  grid-template-columns: 68px minmax(0, 1fr);
+}
+
+/* ---------------------------------------------------------------- sidebar */
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-3);
+  background: var(--sidebar);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border-right: 1px solid var(--hairline);
+  overflow: hidden;
+}
+
+.sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-2) var(--space-4);
+  min-width: 0;
+}
+
+.sidebar__mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.sidebar__wordmark {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sidebar__name {
+  font-size: var(--text-subhead);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  white-space: nowrap;
+}
+
+.sidebar__env {
+  font-size: var(--text-caption-2);
+  color: var(--label-tertiary);
+  white-space: nowrap;
+}
+
+.sidebar__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sidebar__section {
+  padding: var(--space-4) var(--space-3) var(--space-1);
+  font-size: var(--text-caption-2);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--label-tertiary);
+  white-space: nowrap;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 7px var(--space-3);
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--label-secondary);
+  font-size: var(--text-subhead);
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+  transition: background var(--duration-fast) var(--ease-out), color var(--duration-fast);
+}
+
+.nav-item:hover {
+  background: var(--surface-hover);
+  color: var(--label);
+}
+
+.nav-item[aria-current='page'] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.nav-item[aria-current='page'] .nav-item__badge {
+  background: rgba(255, 255, 255, 0.28);
+  color: var(--on-accent);
+}
+
+.nav-item__icon {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+}
+
+.nav-item__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-item__badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--red);
+  color: #fff;
+  font-size: var(--text-caption-2);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar__spacer {
+  flex: 1;
+}
+
+.sidebar__foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--hairline);
+}
+
+.status-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-3);
+  font-size: var(--text-caption);
+  color: var(--label-secondary);
+  white-space: nowrap;
+}
+
+.status-line__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-line__dot[data-state='online'] {
+  background: var(--green);
+  box-shadow: 0 0 0 3px var(--green-soft);
+}
+
+.status-line__dot[data-state='offline'] {
+  background: var(--red);
+  box-shadow: 0 0 0 3px var(--red-soft);
+}
+
+.status-line__dot[data-state='pending'] {
+  background: var(--orange);
+  box-shadow: 0 0 0 3px var(--orange-soft);
+}
+
+.shell[data-collapsed='true'] .sidebar__wordmark,
+.shell[data-collapsed='true'] .nav-item__label,
+.shell[data-collapsed='true'] .nav-item__badge,
+.shell[data-collapsed='true'] .sidebar__section,
+.shell[data-collapsed='true'] .status-line span {
+  display: none;
+}
+
+.shell[data-collapsed='true'] .nav-item,
+.shell[data-collapsed='true'] .status-line {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* ---------------------------------------------------------------- toolbar */
+
+.content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--toolbar-height);
+  padding: 0 var(--space-6);
+  background: var(--surface-translucent);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.toolbar__title {
+  font-size: var(--text-headline);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  white-space: nowrap;
+}
+
+.toolbar__search {
+  flex: 1;
+  max-width: 420px;
+  margin-left: var(--space-3);
+}
+
+.toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.page {
+  flex: 1;
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-6) var(--space-16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.page__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.page__heading {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.page__title {
+  font-size: var(--text-title-1);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+
+.page__lede {
+  font-size: var(--text-subhead);
+  color: var(--label-secondary);
+  max-width: 66ch;
+}
+
+.page__tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* ----------------------------------------------------------------- popovers */
+
+.popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 50;
+  width: 320px;
+  padding: var(--space-2);
+  background: var(--surface-translucent);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  animation: pop-in var(--duration-fast) var(--ease-out);
+}
+
+.popover__anchor {
+  position: relative;
+}
+
+.popover__item {
+  display: flex;
+  width: 100%;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+  color: var(--label);
+}
+
+.popover__item:hover {
+  background: var(--surface-hover);
+}
+
+@keyframes pop-in {
+  from {
+    transform: translateY(-4px) scale(0.98);
+    opacity: 0;
+  }
+}
+
+/* ------------------------------------------------------------- responsive */
+
+@media (max-width: 1024px) {
+  .shell,
+  .shell[data-collapsed='true'] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 45;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-4);
+    border-right: 0;
+    border-bottom: 1px solid var(--hairline);
+    overflow-x: auto;
+  }
+
+  .sidebar__brand {
+    padding: 0 var(--space-3) 0 0;
+  }
+
+  .sidebar__nav {
+    flex-direction: row;
+    gap: var(--space-1);
+  }
+
+  .sidebar__section,
+  .sidebar__spacer,
+  .sidebar__foot,
+  .sidebar__wordmark {
+    display: none;
+  }
+
+  /* The dot alone carries reachability once the toolbar is tight. */
+  .status-line__text {
+    display: none;
+  }
+
+  .nav-item__label {
+    display: none;
+  }
+
+  .nav-item {
+    padding: 8px 10px;
+  }
+
+  .toolbar {
+    padding: 0 var(--space-4);
+  }
+
+  .page {
+    padding: var(--space-5) var(--space-4) var(--space-12);
+  }
+}
+
+@media (max-width: 720px) {
+  .status-line {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .toolbar__search {
+    max-width: none;
+    margin-left: 0;
+  }
+
+  .toolbar__title {
+    display: none;
+  }
+
+  .page__title {
+    font-size: var(--text-title-2);
+  }
+
+  .sheet {
+    width: 100vw;
+  }
+}

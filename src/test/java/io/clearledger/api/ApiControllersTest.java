@@ -9,11 +9,13 @@ import io.clearledger.payment.CreatePaymentRequest;
 import io.clearledger.payment.EstablishedRecipientRepository;
 import io.clearledger.payment.PaymentCreationResult;
 import io.clearledger.payment.PaymentService;
+import io.clearledger.payment.PaymentReference;
 import io.clearledger.payment.PaymentSnapshot;
 import io.clearledger.payment.PaymentStatus;
 import io.clearledger.payment.ProcessingFault;
 import io.clearledger.payment.SimulatedTimeoutException;
 import io.clearledger.reconciliation.ReconciliationService;
+import io.clearledger.reconciliation.ReconciliationTrigger;
 import io.clearledger.risk.RiskDecision;
 import java.time.Instant;
 import java.util.List;
@@ -78,7 +80,13 @@ class ApiControllersTest {
                 new PaymentService.DashboardSummary(1, 0, 1, 0, 0, 100, 1_000);
         ReconciliationService.ReconciliationRun run =
                 new ReconciliationService.ReconciliationRun(
-                        Instant.now(), Instant.now(), 1, 1, 0);
+                        UUID.randomUUID(),
+                        Instant.now(),
+                        Instant.now(),
+                        1,
+                        1,
+                        0,
+                        ReconciliationTrigger.MANUAL);
         when(payments.dashboard()).thenReturn(summary);
         when(reconciliation.reconcile()).thenReturn(run);
 
@@ -138,6 +146,7 @@ class ApiControllersTest {
     private PaymentSnapshot snapshot(UUID id, PaymentStatus status) {
         return new PaymentSnapshot(
                 id,
+                PaymentReference.of(id),
                 UUID.randomUUID(),
                 UUID.randomUUID(),
                 1_000,

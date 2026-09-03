@@ -33,4 +33,15 @@ public class AuditEventEntity {
         this.detail = detail;
         this.createdAt = createdAt;
     }
+
+    public UUID getId() { return id; }
+    public UUID getPaymentId() { return paymentId; }
+    public String getEventType() { return eventType; }
+    public String getActor() { return actor; }
+    public String getDetail() { return detail; }
+    public Instant getCreatedAt() { return createdAt; }
+
+    public AuditEventSnapshot snapshot() {
+        return new AuditEventSnapshot(id, paymentId, eventType, actor, detail, createdAt);
+    }
 }

@@ -24,4 +24,5 @@ public class JournalEntity {
 
     public UUID getId() { return id; }
     public UUID getPaymentId() { return paymentId; }
+    public Instant getCreatedAt() { return createdAt; }
 }

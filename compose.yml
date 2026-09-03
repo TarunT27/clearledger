@@ -34,6 +34,12 @@ services:
       MANAGEMENT_HEALTH_LIVENESSSTATE_ENABLED: "true"
       MANAGEMENT_HEALTH_READINESSSTATE_ENABLED: "true"
       CLEARLEDGER_RECONCILIATION_FIXED_DELAY_MS: ${RECONCILIATION_FIXED_DELAY_MS:-30000}
+      # The demo profile pauses the background reconciler so the exception queue stays
+      # open for an operator to drive. Set this to true to watch the worker heal cases
+      # on its own interval instead.
+      CLEARLEDGER_RECONCILIATION_ENABLED: ${RECONCILIATION_ENABLED:-false}
+      # Seed two months of history on an empty database so the console opens with data.
+      CLEARLEDGER_DEMO_SEED_HISTORY: ${DEMO_SEED_HISTORY:-true}
     depends_on:
       postgres:
         condition: service_healthy

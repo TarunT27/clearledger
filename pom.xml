@@ -152,4 +152,58 @@
 		</plugins>
 	</build>
 
+	<profiles>
+		<!--
+			Local development without a Docker daemon: compiles src/local/java and starts a
+			real PostgreSQL 17 inside the JVM. Nothing here is part of the default build, so
+			the published image and the CI verification job are unaffected.
+
+			  ./mvnw -Plocal spring-boot:run -Dspring-boot.run.profiles=local,demo
+		-->
+		<profile>
+			<id>local</id>
+			<dependencies>
+				<dependency>
+					<groupId>io.zonky.test</groupId>
+					<artifactId>embedded-postgres</artifactId>
+					<version>2.1.0</version>
+				</dependency>
+				<dependency>
+					<groupId>io.zonky.test.postgres</groupId>
+					<artifactId>embedded-postgres-binaries-darwin-arm64v8</artifactId>
+					<version>17.4.0</version>
+				</dependency>
+				<dependency>
+					<groupId>io.zonky.test.postgres</groupId>
+					<artifactId>embedded-postgres-binaries-linux-amd64</artifactId>
+					<version>17.4.0</version>
+				</dependency>
+				<dependency>
+					<groupId>io.zonky.test.postgres</groupId>
+					<artifactId>embedded-postgres-binaries-darwin-amd64</artifactId>
+					<version>17.4.0</version>
+				</dependency>
+			</dependencies>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.codehaus.mojo</groupId>
+						<artifactId>build-helper-maven-plugin</artifactId>
+						<version>3.6.0</version>
+						<executions>
+							<execution>
+								<id>add-local-sources</id>
+								<phase>generate-sources</phase>
+								<goals><goal>add-source</goal></goals>
+								<configuration>
+									<sources><source>src/local/java</source></sources>
+								</configuration>
+							</execution>
+						</executions>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
+
 </project>

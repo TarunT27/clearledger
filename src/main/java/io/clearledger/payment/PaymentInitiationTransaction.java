@@ -15,8 +15,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class PaymentInitiationTransaction {
-    private static final Duration ATTEMPT_WINDOW = Duration.ofMinutes(10);
-    private static final Duration VELOCITY_WINDOW = Duration.ofHours(1);
+    public static final Duration ATTEMPT_WINDOW = Duration.ofMinutes(10);
+    public static final Duration VELOCITY_WINDOW = Duration.ofHours(1);
 
     private final JdbcTemplate jdbc;
     private final PaymentRepository payments;

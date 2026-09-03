@@ -1,404 +1,405 @@
+import { CheckCircle2, FileText, Pause, Play, ShieldCheck, Wrench } from 'lucide-react'
+import { useCallback, useState } from 'react'
+import { consoleApi } from '../lib/consoleApi'
+import type { ReconciliationCase } from '../lib/consoleTypes'
+import { formatCount, formatDateTime, formatDuration, formatMoney, formatRelative } from '../lib/format'
+import { useResource } from '../hooks/useResource'
 import {
-  ArrowRight,
-  Check,
-  CheckCircle2,
-  CircleAlert,
-  FileCheck2,
-  RefreshCw,
-  ShieldCheck,
-} from 'lucide-react'
-import { useMemo, useState } from 'react'
-import type {
-  OperationsFixture,
-  ReconciliationCaseRecord,
-  ReconciliationSeverity,
-} from '../lib/operationsData'
-import '../styles/operationsPages.css'
+  EmptyState,
+  ErrorState,
+  LoadingRows,
+  Money,
+  PageHeader,
+  RefreshButton,
+  SeverityPill,
+  Spinner,
+  TonePill,
+} from '../components/primitives'
+import type { ViewId } from '../components/AppShell'
+
+const ACTION_LABEL: Record<string, string> = {
+  FINALIZE_APPROVED: 'Finalize approved',
+  FINALIZE_DECISION: 'Apply risk decision',
+  FLAG_MANUAL_REVIEW: 'Route to review',
+  NO_OP: 'No action',
+}
 
 export interface ReconciliationPageProps {
-  readonly fixture: OperationsFixture
-  readonly onRepair: (caseId: string) => void | Promise<void>
   readonly onSelectPayment: (paymentId: string) => void
+  readonly onNavigate: (view: ViewId) => void
+  readonly onToast: (message: string, tone: 'success' | 'error') => void
+  readonly onChanged: () => void
+  readonly reloadToken: number
 }
 
-type CaseFilter = 'all' | 'open' | 'repaired'
-
-interface RunResult {
-  readonly runs: number
-  readonly scanned: number
-  readonly exceptions: number
-  readonly repaired: number
-}
-
-const dateTime = new Intl.DateTimeFormat('en-US', {
-  month: 'short',
-  day: 'numeric',
-  hour: 'numeric',
-  minute: '2-digit',
-})
-
-function formatDate(value: string): string {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : dateTime.format(date)
-}
-
-function formatMoney(amount: number, currency: string): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-  }).format(amount)
-}
-
-function severityTone(severity: ReconciliationSeverity): 'danger' | 'warning' | 'info' | 'neutral' {
-  if (severity === 'Critical') return 'danger'
-  if (severity === 'High' || severity === 'Medium') return 'warning'
-  if (severity === 'Low') return 'info'
-  return 'neutral'
-}
-
-function caseNeedsRepair(
-  item: ReconciliationCaseRecord,
-  locallyRepaired: ReadonlySet<string>,
-): boolean {
-  return item.state !== 'Repaired' && !locallyRepaired.has(item.id)
-}
-
+/**
+ * The recovery workbench.
+ *
+ * A repair here is not a retry. The server re-reads the row under a lock, verifies the
+ * journal that already committed, and writes only if the version it observed is still the
+ * current one — so the outcome panel reports the versions involved, which is the part that
+ * proves a stale worker could not have overwritten newer state.
+ */
 export function ReconciliationPage({
-  fixture,
-  onRepair,
   onSelectPayment,
+  onNavigate,
+  onToast,
+  onChanged,
+  reloadToken,
 }: ReconciliationPageProps) {
-  const firstOpenCase = fixture.reconciliationCases.find((item) => item.state !== 'Repaired')
-  const [filter, setFilter] = useState<CaseFilter>('open')
-  const [selectedCaseId, setSelectedCaseId] = useState(
-    firstOpenCase?.id ?? fixture.reconciliationCases[0]?.id ?? '',
-  )
-  const [locallyRepaired, setLocallyRepaired] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  )
-  const [repairingCaseId, setRepairingCaseId] = useState('')
-  const [repairError, setRepairError] = useState('')
-  const [runResult, setRunResult] = useState<RunResult>({
-    runs: 0,
-    scanned: 0,
-    exceptions: 0,
-    repaired: 0,
+  const load = useCallback((signal: AbortSignal) => consoleApi.reconciliation(signal), [])
+  const { data, error, loading, refreshing, reload } = useResource(load, [reloadToken], {
+    pollMs: 20_000,
   })
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [sweeping, setSweeping] = useState(false)
 
-  const openCount = fixture.reconciliationCases.filter(
-    (item) => caseNeedsRepair(item, locallyRepaired),
-  ).length
-  const repairedCount = fixture.reconciliationCases.length - openCount
-
-  const filteredCases = useMemo(
-    () => fixture.reconciliationCases.filter((item) => {
-      const needsRepair = caseNeedsRepair(item, locallyRepaired)
-      if (filter === 'open') return needsRepair
-      if (filter === 'repaired') return !needsRepair
-      return true
-    }),
-    [filter, fixture.reconciliationCases, locallyRepaired],
-  )
-
-  const selectedCase = fixture.reconciliationCases.find(
-    (item) => item.id === selectedCaseId,
-  ) ?? filteredCases[0] ?? fixture.reconciliationCases[0] ?? null
-  const selectedPayment = selectedCase
-    ? fixture.payments.find((payment) => payment.id === selectedCase.paymentId) ?? null
-    : null
-  const selectedJournal = selectedCase
-    ? fixture.journals.find((journal) => (
-      journal.id === selectedCase.journalId || journal.paymentId === selectedCase.paymentId
-    )) ?? null
-    : null
-  const selectedCaseRepaired = selectedCase
-    ? !caseNeedsRepair(selectedCase, locallyRepaired)
-    : false
-
-  function runReconciliation() {
-    setRunResult((previous) => ({
-      runs: previous.runs + 1,
-      scanned: fixture.payments.length,
-      exceptions: openCount,
-      repaired: repairedCount,
-    }))
+  async function repair(item: ReconciliationCase) {
+    setBusyId(item.paymentId)
+    try {
+      const outcome = await consoleApi.repair(item.paymentId)
+      onToast(
+        outcome.alreadyResolved
+          ? `${item.reference}: ${outcome.narrative}`
+          : `${item.reference} repaired — version ${outcome.observedVersion} → ${outcome.committedVersion}, now ${outcome.status.toLowerCase()}.`,
+        'success',
+      )
+      reload()
+      onChanged()
+    } catch (cause) {
+      onToast(cause instanceof Error ? cause.message : 'The repair failed.', 'error')
+    } finally {
+      setBusyId(null)
+    }
   }
 
-  async function approveRepair(item: ReconciliationCaseRecord) {
-    setRepairError('')
-    setRepairingCaseId(item.id)
+  async function sweep() {
+    setSweeping(true)
     try {
-      await onRepair(item.id)
-      setLocallyRepaired((current) => new Set([...current, item.id]))
-    } catch {
-      setRepairError('Repair was not completed. The reconciliation case remains unchanged.')
+      await consoleApi.runReconciliation()
+      onToast('Reconciliation sweep completed.', 'success')
+      reload()
+      onChanged()
+    } catch (cause) {
+      onToast(cause instanceof Error ? cause.message : 'The sweep failed.', 'error')
     } finally {
-      setRepairingCaseId('')
+      setSweeping(false)
     }
   }
 
   return (
-    <div className="operations-page operations-page--reconciliation">
-      <header className="operations-page__header">
-        <div>
-          <span className="operations-eyebrow">Integrity controls</span>
-          <h1>Reconciliation</h1>
-          <p>Resolve processor and payment-state drift without duplicating ledger writes.</p>
-        </div>
-        <button type="button" className="operations-primary-button" onClick={runReconciliation}>
-          <RefreshCw size={17} aria-hidden="true" />
-          Run reconciliation
-        </button>
-      </header>
+    <main className="page">
+      <PageHeader
+        eyebrow="Recovery"
+        title="Reconciliation"
+        lede="Pending payments whose ledger evidence has already committed, and the compare-and-swap repair that finishes them safely."
+        tools={
+          <>
+            <RefreshButton onClick={reload} busy={refreshing} />
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={sweep}
+              disabled={sweeping}
+            >
+              <Wrench size={14} aria-hidden="true" />
+              {sweeping ? 'Running…' : 'Run sweep'}
+            </button>
+          </>
+        }
+      />
 
-      <section className="reconciliation-run" aria-label="Latest reconciliation run" aria-live="polite">
-        <div>
-          <span>Runs completed</span>
-          <strong>{runResult.runs}</strong>
+      {error && !data ? (
+        <div className="card">
+          <ErrorState message={error} onRetry={reload} />
         </div>
-        <div>
-          <span>Payments checked</span>
-          <strong>{runResult.scanned}</strong>
-        </div>
-        <div>
-          <span>Exceptions found</span>
-          <strong>{runResult.exceptions}</strong>
-        </div>
-        <div>
-          <span>Repairs completed</span>
-          <strong>{runResult.repaired}</strong>
-        </div>
-        {runResult.runs > 0 ? (
-          <p><Check size={15} aria-hidden="true" /> Reconciliation run {runResult.runs} completed</p>
-        ) : null}
-      </section>
+      ) : null}
+      {loading && !data ? <LoadingRows rows={4} height={90} /> : null}
 
-      <div className="reconciliation-workspace">
-        <section className="operations-panel exception-queue" aria-labelledby="exception-queue-title">
-          <div className="operations-panel__header operations-panel__header--stack">
-            <div>
-              <span className="operations-eyebrow">Exception queue</span>
-              <h2 id="exception-queue-title">State mismatches</h2>
-              <p>{openCount} cases still require attention</p>
-            </div>
-            <div className="operations-tabs" role="tablist" aria-label="Reconciliation filters">
-              {([
-                ['all', 'All cases', fixture.reconciliationCases.length],
-                ['open', 'Needs repair', openCount],
-                ['repaired', 'Repaired', repairedCount],
-              ] as const).map(([value, label, count]) => (
-                <button
-                  type="button"
-                  role="tab"
-                  id={`reconciliation-tab-${value}`}
-                  aria-controls="reconciliation-case-panel"
-                  aria-selected={filter === value}
-                  className={filter === value ? 'is-active' : undefined}
-                  onClick={() => setFilter(value)}
-                  key={value}
-                >
-                  {label}
-                  <span>{count}</span>
-                </button>
-              ))}
-            </div>
+      {data ? (
+        <>
+          <div
+            className="grid"
+            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}
+          >
+            <StatTile label="Open cases" value={formatCount(data.stats.openCases)} caption="pending payments" />
+            <StatTile
+              label="Ledger already posted"
+              value={formatCount(data.stats.journalBackedCases)}
+              caption="money moved, status did not"
+            />
+            <StatTile
+              label="Repairable now"
+              value={formatCount(data.stats.repairableNow)}
+              caption="planner would finalize"
+            />
+            <StatTile
+              label="Repaired to date"
+              value={formatCount(data.stats.repairedAllTime)}
+              caption={`${formatCount(data.stats.flaggedAllTime)} routed to review`}
+            />
           </div>
 
-          <div
-            id="reconciliation-case-panel"
-            role="tabpanel"
-            aria-labelledby={`reconciliation-tab-${filter}`}
-            className="exception-list"
-          >
-            {filteredCases.map((item) => {
-              const isRepaired = !caseNeedsRepair(item, locallyRepaired)
-              return (
-                <article
-                  className={`exception-item${selectedCase?.id === item.id ? ' is-selected' : ''}`}
-                  key={item.id}
-                >
-                  <div className="exception-item__marker" aria-hidden="true">
-                    {isRepaired ? <CheckCircle2 size={18} /> : <CircleAlert size={18} />}
-                  </div>
-                  <div className="exception-item__body">
-                    <div className="exception-item__heading">
-                      <div>
-                        <code>{item.paymentId}</code>
-                        <strong>{item.merchant}</strong>
-                      </div>
-                      <span className={`operation-badge operation-badge--${isRepaired ? 'success' : severityTone(item.severity)}`}>
-                        {isRepaired ? 'Repaired' : item.severity}
-                      </span>
-                    </div>
-                    <p>{item.reason}</p>
-                    <div className="exception-item__meta">
-                      <span>{item.age}</span>
-                      <span>{isRepaired ? 'Resolved' : item.state}</span>
-                      <time dateTime={item.updatedAt}>{formatDate(item.updatedAt)}</time>
-                    </div>
-                  </div>
+          <section className="card">
+            <div className="card__body row row--between" style={{ padding: 'var(--space-4)' }}>
+              <span className="row">
+                {data.stats.workerEnabled ? (
+                  <TonePill tone="success">
+                    <Play size={12} aria-hidden="true" /> Worker running
+                  </TonePill>
+                ) : (
+                  <TonePill tone="warning">
+                    <Pause size={12} aria-hidden="true" /> Worker paused
+                  </TonePill>
+                )}
+                <span className="text-footnote text-secondary">
+                  {data.stats.workerEnabled
+                    ? `Sweeps every ${formatDuration(data.stats.workerIntervalMs / 1000)}. Repairs below do exactly what it does.`
+                    : 'Paused in this environment so the queue stays open for you to drive. The repair path is identical either way.'}
+                </span>
+              </span>
+              <span className="text-footnote text-tertiary">
+                Last run {formatRelative(data.stats.lastRunAt)}
+              </span>
+            </div>
+          </section>
+
+          <section className="card card--flush">
+            <div className="card__header">
+              <div>
+                <div className="eyebrow">Open exceptions</div>
+                <h2 className="card__title">Cases</h2>
+                <p className="card__subtitle">
+                  Derived on read from the payment, its journal, and its audit trail — never
+                  from a stored case row that could drift.
+                </p>
+              </div>
+            </div>
+
+            {data.cases.length === 0 ? (
+              <EmptyState
+                icon={<ShieldCheck size={20} aria-hidden="true" />}
+                title="Nothing to recover"
+                body="Every payment has a final status and every journal balances. Run the timeout scenario to create a real exception and watch the repair."
+                action={
                   <button
                     type="button"
-                    className="operations-secondary-button"
-                    aria-label={`Review case ${item.paymentId}`}
-                    onClick={() => {
-                      setSelectedCaseId(item.id)
-                      setRepairError('')
-                    }}
+                    className="btn btn--primary"
+                    onClick={() => onNavigate('scenario-lab')}
                   >
-                    Review case
-                    <ArrowRight size={15} aria-hidden="true" />
+                    Open scenario lab
                   </button>
-                </article>
-              )
-            })}
-
-            {filteredCases.length === 0 ? (
-              <div className="operations-empty" role="status">
-                <CheckCircle2 size={23} aria-hidden="true" />
-                <strong>No cases in this view</strong>
-                <button
-                  type="button"
-                  className="operations-text-button"
-                  onClick={() => setFilter('all')}
-                >
-                  Show all cases
-                </button>
-              </div>
-            ) : null}
-          </div>
-        </section>
-
-        <aside className="operations-panel reconciliation-evidence" aria-label="Reconciliation evidence">
-          {selectedCase ? (
-            <>
-              <div className="operations-panel__header">
-                <div>
-                  <span className="operations-eyebrow">Case evidence</span>
-                  <h2>{selectedCase.paymentId}</h2>
-                </div>
-                <span className={`operation-badge operation-badge--${selectedCaseRepaired ? 'success' : severityTone(selectedCase.severity)}`}>
-                  {selectedCaseRepaired ? 'Repaired' : selectedCase.state}
-                </span>
-              </div>
-
-              <button
-                type="button"
-                className="reconciliation-payment-link"
-                onClick={() => onSelectPayment(selectedCase.paymentId)}
-              >
-                <span>
-                  <small>Payment record</small>
-                  <strong>{selectedCase.merchant}</strong>
-                </span>
-                <ArrowRight size={17} aria-hidden="true" />
-              </button>
-
-              <section className="evidence-section" aria-labelledby="state-comparison-title">
-                <div className="evidence-section__title">
-                  <h3 id="state-comparison-title">Expected vs recorded state</h3>
-                  <FileCheck2 size={17} aria-hidden="true" />
-                </div>
-                <div className="state-comparison">
-                  <div>
-                    <span>Expected state</span>
-                    <strong className="text-success">Approved</strong>
-                  </div>
-                  <ArrowRight size={17} aria-hidden="true" />
-                  <div>
-                    <span>Recorded state</span>
-                    <strong className={selectedCaseRepaired ? 'text-success' : 'text-warning'}>
-                      {selectedCaseRepaired ? 'Approved' : selectedPayment?.status ?? 'Unknown'}
-                    </strong>
-                  </div>
-                </div>
-                <p className="evidence-reason">{selectedCase.reason}</p>
-              </section>
-
-              <section className="evidence-section" aria-labelledby="journal-evidence-title">
-                <div className="evidence-section__title">
-                  <h3 id="journal-evidence-title">Journal evidence</h3>
-                  <span className={`operation-badge operation-badge--${selectedJournal?.balanced ? 'success' : 'warning'}`}>
-                    {selectedJournal?.balanced ? 'Balanced' : 'Check journal'}
-                  </span>
-                </div>
-                <dl className="operations-definition-list operations-definition-list--two-column">
-                  <div><dt>Journal</dt><dd><code>{selectedJournal?.id ?? selectedCase.journalId}</code></dd></div>
-                  <div>
-                    <dt>Debit total</dt>
-                    <dd>{selectedJournal
-                      ? formatMoney(selectedJournal.totalDebits, selectedJournal.currency)
-                      : 'Unavailable'}</dd>
-                  </div>
-                  <div>
-                    <dt>Credit total</dt>
-                    <dd>{selectedJournal
-                      ? formatMoney(selectedJournal.totalCredits, selectedJournal.currency)
-                      : 'Unavailable'}</dd>
-                  </div>
-                  <div><dt>Entries</dt><dd>{selectedJournal?.lines.length ?? 0}</dd></div>
-                </dl>
-              </section>
-
-              <section className="evidence-section" aria-labelledby="version-check-title">
-                <div className="evidence-section__title">
-                  <h3 id="version-check-title">Version check</h3>
-                  <ShieldCheck size={17} aria-hidden="true" />
-                </div>
-                <div className="version-check">
-                  <div><span>Expected version</span><strong>v{selectedCase.expectedVersion}</strong></div>
-                  <ArrowRight size={16} aria-hidden="true" />
-                  <div><span>Recorded version</span><strong>v{selectedCase.currentVersion}</strong></div>
-                </div>
-                <p className="safe-repair-seal">
-                  <ShieldCheck size={16} aria-hidden="true" />
-                  <span><strong>Compare-and-swap guarded</strong> Version is checked again at write time.</span>
-                </p>
-              </section>
-
-              <section className="repair-plan" aria-live="polite">
-                {selectedCaseRepaired ? (
-                  <div className="repair-complete">
-                    <CheckCircle2 size={25} aria-hidden="true" />
-                    <div>
-                      <strong>Repair completed</strong>
-                      <span>No new ledger entries created</span>
+                }
+              />
+            ) : (
+              <div className="stack" style={{ padding: 'var(--space-4)' }}>
+                {data.cases.map((item) => (
+                  <article
+                    key={item.paymentId}
+                    className="card"
+                    style={{ boxShadow: 'none', background: 'var(--surface-sunken)' }}
+                  >
+                    <div className="card__header">
+                      <div className="stack stack--tight" style={{ minWidth: 0 }}>
+                        <div className="row">
+                          <SeverityPill severity={item.severity} />
+                          <button
+                            type="button"
+                            className="btn btn--quiet mono"
+                            onClick={() => onSelectPayment(item.paymentId)}
+                          >
+                            {item.reference}
+                          </button>
+                          <span className="text-caption text-tertiary">
+                            open {formatDuration(item.ageSeconds)}
+                          </span>
+                        </div>
+                        <span className="text-footnote text-secondary">{item.reason}</span>
+                      </div>
+                      <div className="stack stack--tight" style={{ textAlign: 'right' }}>
+                        <Money amountMinor={item.amountMinor} currency={item.currency} />
+                        <span className="text-caption text-tertiary">
+                          {item.recipient.displayName}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <>
-                    <h3>Safe repair plan</h3>
-                    <p>
-                      This action will reuse existing balanced journal{' '}
-                      <code>{selectedJournal?.id ?? selectedCase.journalId}</code> and update only
-                      the recorded payment state.
-                    </p>
-                    <small>{selectedCase.repairStrategy}</small>
-                    <button
-                      type="button"
-                      className="operations-primary-button operations-primary-button--full"
-                      disabled={repairingCaseId === selectedCase.id}
-                      onClick={() => void approveRepair(selectedCase)}
-                    >
-                      {repairingCaseId === selectedCase.id
-                        ? <RefreshCw size={17} className="spin" aria-hidden="true" />
-                        : <ShieldCheck size={17} aria-hidden="true" />}
-                      {repairingCaseId === selectedCase.id ? 'Applying safe repair…' : 'Approve safe repair'}
-                    </button>
-                  </>
-                )}
-                {repairError ? <p className="operations-error" role="alert">{repairError}</p> : null}
-              </section>
-            </>
-          ) : (
-            <div className="operations-empty" role="status">
-              <CheckCircle2 size={23} aria-hidden="true" />
-              <strong>No reconciliation evidence available</strong>
+
+                    <div className="card__body">
+                      <div
+                        className="grid"
+                        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}
+                      >
+                        <div className="stack stack--tight">
+                          <span className="eyebrow">Ledger evidence</span>
+                          {item.journal ? (
+                            <dl className="datalist">
+                              <dt>Journal</dt>
+                              <dd className="mono">{item.journal.reference}</dd>
+                              <dt>Debits</dt>
+                              <dd>
+                                {formatMoney(item.journal.totalDebitsMinor, item.journal.currency)}
+                              </dd>
+                              <dt>Credits</dt>
+                              <dd>
+                                {formatMoney(item.journal.totalCreditsMinor, item.journal.currency)}
+                              </dd>
+                              <dt>Verified</dt>
+                              <dd>
+                                <span className="row">
+                                  {item.balanced ? (
+                                    <TonePill tone="success">Balanced</TonePill>
+                                  ) : (
+                                    <TonePill tone="danger">Unbalanced</TonePill>
+                                  )}
+                                  {item.matchesPayment ? (
+                                    <TonePill tone="success">Matches</TonePill>
+                                  ) : (
+                                    <TonePill tone="danger">Mismatch</TonePill>
+                                  )}
+                                </span>
+                              </dd>
+                            </dl>
+                          ) : (
+                            <p className="text-footnote text-secondary">
+                              No journal exists for this payment, so no money was posted.
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="stack stack--tight">
+                          <span className="eyebrow">Planned repair</span>
+                          <div className="row">
+                            <TonePill tone="info">
+                              {ACTION_LABEL[item.plannedAction] ?? item.plannedAction}
+                            </TonePill>
+                            <span className="text-caption text-tertiary tnum">
+                              expects version {item.version}
+                            </span>
+                          </div>
+                          <p className="text-footnote text-secondary">{item.repairStrategy}</p>
+                        </div>
+
+                        <div className="stack stack--tight">
+                          <span className="eyebrow">Trail</span>
+                          <ol className="timeline">
+                            {item.evidence.slice(-3).map((event) => (
+                              <li key={event.id} className="timeline__item">
+                                <span className="timeline__dot" data-tone={event.tone}>
+                                  <FileText size={10} aria-hidden="true" />
+                                </span>
+                                <div className="stack stack--tight">
+                                  <span className="timeline__title">{event.label}</span>
+                                  <span className="timeline__time">
+                                    {formatDateTime(event.createdAt)}
+                                  </span>
+                                </div>
+                              </li>
+                            ))}
+                          </ol>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="card__footer">
+                      <span>Detected {formatDateTime(item.detectedAt)}</span>
+                      <span className="row">
+                        {busyId === item.paymentId ? <Spinner label="Repairing…" /> : null}
+                        <button
+                          type="button"
+                          className="btn btn--secondary"
+                          onClick={() => onSelectPayment(item.paymentId)}
+                        >
+                          Open evidence
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn--primary"
+                          disabled={busyId !== null}
+                          onClick={() => repair(item)}
+                        >
+                          <CheckCircle2 size={14} aria-hidden="true" />
+                          Repair safely
+                        </button>
+                      </span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="card card--flush">
+            <div className="card__header">
+              <div>
+                <div className="eyebrow">History</div>
+                <h2 className="card__title">Reconciliation runs</h2>
+              </div>
             </div>
-          )}
-        </aside>
-      </div>
+            {data.runs.length === 0 ? (
+              <EmptyState
+                title="No runs recorded"
+                body="Reconciliation has not run in this database yet. Start a sweep above to record one."
+              />
+            ) : (
+              <div className="table-scroll">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Started</th>
+                      <th>Trigger</th>
+                      <th className="numeric">Scanned</th>
+                      <th className="numeric">Repaired</th>
+                      <th className="numeric">Flagged</th>
+                      <th className="numeric">Duration</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.runs.map((run) => (
+                      <tr key={run.id}>
+                        <td className="text-secondary">{formatDateTime(run.startedAt)}</td>
+                        <td>
+                          <TonePill tone={run.trigger === 'SCHEDULED' ? 'neutral' : 'info'}>
+                            {run.trigger.toLowerCase()}
+                          </TonePill>
+                        </td>
+                        <td className="numeric">{run.scanned}</td>
+                        <td className="numeric">{run.repaired}</td>
+                        <td className="numeric">{run.flagged}</td>
+                        <td className="numeric text-secondary">
+                          {Math.max(
+                            0,
+                            new Date(run.completedAt).getTime() -
+                              new Date(run.startedAt).getTime(),
+                          )}
+                          &nbsp;ms
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </>
+      ) : null}
+    </main>
+  )
+}
+
+function StatTile({
+  label,
+  value,
+  caption,
+}: {
+  readonly label: string
+  readonly value: string
+  readonly caption: string
+}) {
+  return (
+    <div className="metric">
+      <span className="metric__label">{label}</span>
+      <span className="metric__value">{value}</span>
+      <span className="metric__foot">{caption}</span>
     </div>
   )
 }

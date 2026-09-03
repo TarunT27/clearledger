@@ -21,6 +21,7 @@ import java.util.UUID;
 public class PaymentEntity {
 
     @Id private UUID id;
+    @Column(nullable = false, length = 16) private String reference;
     @Column(name = "sender_id", nullable = false) private UUID senderId;
     @Column(name = "recipient_id", nullable = false) private UUID recipientId;
     @Column(name = "amount_minor", nullable = false) private long amountMinor;
@@ -52,6 +53,7 @@ public class PaymentEntity {
             Clock clock) {
         PaymentEntity payment = new PaymentEntity();
         payment.id = id;
+        payment.reference = PaymentReference.of(id);
         payment.senderId = request.senderId();
         payment.recipientId = request.recipientId();
         payment.amountMinor = request.amountMinor();
@@ -89,6 +91,7 @@ public class PaymentEntity {
     }
 
     public UUID getId() { return id; }
+    public String getReference() { return reference; }
     public UUID getSenderId() { return senderId; }
     public UUID getRecipientId() { return recipientId; }
     public long getAmountMinor() { return amountMinor; }
@@ -97,6 +100,11 @@ public class PaymentEntity {
     public RiskDecision getRiskDecision() { return riskDecision; }
     public String getRequestFingerprint() { return requestFingerprint; }
     public Instant getCreatedAt() { return createdAt; }
+    public Instant getUpdatedAt() { return updatedAt; }
+    public String getDescription() { return description; }
+    public int getRiskScore() { return riskScore; }
+    public long getVersion() { return version; }
+    public boolean isReconciliationRequired() { return reconciliationRequired; }
 
     public PaymentSnapshot snapshot() {
         List<RiskSignal> signals =
@@ -106,7 +114,7 @@ public class PaymentEntity {
                                 .map(code -> new RiskSignal(code, true, signalScore(code), explanation(code)))
                                 .toList();
         return new PaymentSnapshot(
-                id, senderId, recipientId, amountMinor, currency, description, status,
+                id, reference, senderId, recipientId, amountMinor, currency, description, status,
                 riskDecision, riskScore, signals, createdAt, updatedAt);
     }
 

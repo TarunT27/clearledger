@@ -39,6 +39,7 @@ public class JournalEntryEntity {
         this.createdAt = createdAt;
     }
 
+    public UUID getJournalId() { return journalId; }
     public String getAccountId() { return accountId; }
     public EntryDirection getDirection() { return direction; }
     public long getAmountMinor() { return amountMinor; }

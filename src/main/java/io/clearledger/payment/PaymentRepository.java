@@ -7,10 +7,13 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface PaymentRepository extends JpaRepository<PaymentEntity, UUID> {
+public interface PaymentRepository
+        extends JpaRepository<PaymentEntity, UUID>,
+                JpaSpecificationExecutor<PaymentEntity> {
 
     Optional<PaymentEntity> findBySenderIdAndIdempotencyKeyHash(UUID senderId, String keyHash);
 
@@ -55,4 +58,20 @@ public interface PaymentRepository extends JpaRepository<PaymentEntity, UUID> {
 
     @Query("select coalesce(sum(p.amountMinor), 0) from PaymentEntity p where p.createdAt >= :since")
     long volumeSince(@Param("since") Instant since);
+
+    @Query(
+            """
+            select new io.clearledger.payment.PaymentPulse(
+                    p.createdAt, p.status, p.riskDecision, p.amountMinor, p.riskSignals)
+              from PaymentEntity p
+             where p.createdAt >= :from
+               and p.createdAt < :to
+             order by p.createdAt
+            """)
+    List<PaymentPulse> pulseBetween(@Param("from") Instant from, @Param("to") Instant to);
+
+    @Query("select coalesce(avg(p.riskScore), 0) from PaymentEntity p where p.createdAt >= :since")
+    double averageRiskScoreSince(@Param("since") Instant since);
+
+    Optional<PaymentEntity> findByReference(String reference);
 }

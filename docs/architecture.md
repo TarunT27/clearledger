@@ -15,14 +15,48 @@ The editable overview is available as
 
 | Component | Responsibility | Trust boundary |
 | --- | --- | --- |
-| React operations console | Run scenarios and inspect payments, risk evidence, journals, and reconciliation | Untrusted browser input |
+| React operations console | Inspect payments, risk evidence, journals, and reconciliation; create payments; repair cases; run scenarios | Untrusted browser input |
 | nginx edge | Serve static assets, apply browser security headers, same-origin proxy `/api/*` | Only host-published service |
 | Spring Boot API | Validate requests, enforce idempotency, calculate risk, post journals, expose status | Application boundary |
 | Reconciliation worker | Scan stale pending payments, verify durable facts, plan and CAS-apply repairs | Same API process, separate scheduled workload |
-| PostgreSQL | Source of truth for payments, journals, audit events, locks, and recipient history | Internal-only Compose network |
+| Console read model | Answer screen-shaped questions by projecting the same tables the payment path writes | Read-only apart from one delegated repair |
+| PostgreSQL | Source of truth for payments, journals, audit events, locks, counterparties, reconciliation runs, and recipient history | Internal-only Compose network |
 
 The web and API containers share the `edge` network. The API and PostgreSQL share the
 internal `data` network. The database has no host port in the default Compose file.
+
+## Read model
+
+The console is served by `/api/v1/console/*`, deliberately separate from the
+transactional contract at `/api/v1/payments`. The split exists for two reasons.
+
+First, stability. `/api/v1/payments` is what another system integrates against; its shape
+must not churn because a dashboard grew a column. The console surface is free to change
+with the UI.
+
+Second, honesty. Every console endpoint computes its answer from the payment, journal,
+and audit tables on read. There is no denormalised projection to fall behind, no cached
+counter to reconcile, and no fixture path in the browser. Concretely:
+
+- reconciliation cases are derived from pending payments plus their journals, so a case
+  cannot exist for a payment that is already final;
+- journal balance is summed in SQL from the journal's own entries rather than read from a
+  stored boolean;
+- the risk page reports the thresholds compiled into the running `RiskEngine`, so the
+  documented policy and the enforced policy cannot diverge;
+- headline metrics compare a window against the equivalent prior window, and report *no
+  comparison* when the prior window held no data rather than an infinite rise.
+
+The single console endpoint that writes — repairing one reconciliation case — delegates
+straight to `ReconciliationService`, so an operator-triggered repair obeys exactly the
+same compare-and-swap rules as the background worker. There is no second, weaker
+implementation for the UI to call.
+
+Counterparties are reference data introduced in migration V2. The ledger keeps addressing
+parties by UUID, which is correct for double entry; the read model resolves those UUIDs to
+names so a reviewer can judge a payment without decoding an identifier. Payments also
+carry a short derived `reference` (`PAY-8C42A1F0`) because operators quote records to each
+other out loud and a UUID cannot be quoted.
 
 ## Payment path
 
@@ -63,14 +97,24 @@ must not inflate velocity or repeated-attempt evidence.
 ## Ledger model
 
 ```text
+counterparties ──┐ (resolved on read, no foreign key)
+                 │
 payments 1 ─── 0..1 journals 1 ─── 2..n journal_entries
     │
     └── 0..n audit_events
+
+reconciliation_runs   (durable history, no row-level link)
 ```
+
+Counterparties are resolved on read rather than joined through a foreign key: the ledger's
+correctness does not depend on a party having a name, and adding that constraint would
+make the payment aggregate fail for a party the reference table has not heard of. The
+console renders an unregistered identifier plainly instead.
 
 The important database constraints are:
 
 - `payments(sender_id, idempotency_key_hash)` is unique;
+- `payments.reference` is unique and derived deterministically from the payment id;
 - `journals.payment_id` is unique;
 - monetary amounts are positive integers;
 - currency and status values are constrained;
@@ -117,6 +161,14 @@ Reconciliation proceeds as follows:
 6. On success, write an audit event and count the repair.
 7. A stale optimistic update cannot overwrite newer state; its transaction fails and
    rolls back rather than silently winning.
+8. Every run — scheduled, operator-triggered sweep, or single-case repair — is recorded in
+   `reconciliation_runs` with its trigger, so the console can show whether the worker has
+   actually run rather than assuming it has.
+
+A targeted repair re-reads the row under a lock and reports the versions involved. If a
+concurrent sweep wins the race, the outcome comes back as `alreadyResolved` with a
+`NO_OP` action instead of an error: losing the race is the guarantee working, not a
+failure.
 
 The repair **does not create a journal and does not invoke payment creation again**.
 Consequently, a scheduled worker, an operator-triggered run, and a concurrent API
@@ -175,7 +227,7 @@ regulatory compliance, or real payment-network integration. See
 | Layer | Focus |
 | --- | --- |
 | Unit | request fingerprints, risk thresholds, state transitions, reconciliation plans |
-| Integration | Flyway schema, concurrent idempotency, journal balance, timeout recovery using PostgreSQL Testcontainers |
-| Web | data mapping, user actions, status/risk presentation |
-| E2E | normal, duplicate, and timeout/reconciliation journeys through the composed stack |
+| Integration | Flyway schema, concurrent idempotency, journal balance, timeout recovery, and every console read-model endpoint, using PostgreSQL Testcontainers |
+| Web | API client contracts, fetch lifecycle, formatting, CSV escaping, and every workbench rendered against stubbed wire shapes |
+| E2E | search, filtering, paging, evidence, appearance, and the full timeout → repair journey through the composed stack, asserting the ledger's journal count is unchanged by a repair |
 | Delivery | Maven verify, npm lint/test/build, image builds, CodeQL, dependency review |
