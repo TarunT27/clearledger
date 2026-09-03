@@ -2,6 +2,7 @@ package io.clearledger.ledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.clearledger.payment.PaymentReference;
 import io.clearledger.payment.PaymentSnapshot;
 import io.clearledger.payment.PaymentStatus;
 import io.clearledger.risk.RiskDecision;
@@ -19,7 +20,7 @@ class JournalVerifierTest {
         UUID recipient = UUID.randomUUID();
         PaymentSnapshot payment =
                 new PaymentSnapshot(
-                        paymentId, sender, recipient, 12_500, "USD", "Invoice",
+                        paymentId, PaymentReference.of(paymentId), sender, recipient, 12_500, "USD", "Invoice",
                         PaymentStatus.PENDING, RiskDecision.APPROVED, 0, List.of(),
                         Instant.now(), Instant.now());
         JournalSnapshot journal =
@@ -43,7 +44,7 @@ class JournalVerifierTest {
         UUID recipient = UUID.randomUUID();
         PaymentSnapshot payment =
                 new PaymentSnapshot(
-                        paymentId, sender, recipient, 12_500, "USD", "Invoice",
+                        paymentId, PaymentReference.of(paymentId), sender, recipient, 12_500, "USD", "Invoice",
                         PaymentStatus.PENDING, RiskDecision.APPROVED, 0, List.of(),
                         Instant.now(), Instant.now());
         JournalSnapshot journal =

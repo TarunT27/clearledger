@@ -1,218 +1,203 @@
+import { FileText, Lock } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { consoleApi } from '../lib/consoleApi'
+import type { AuditEventView } from '../lib/consoleTypes'
+import { downloadCsv, toCsv } from '../lib/csv'
+import { formatFullTimestamp } from '../lib/format'
+import { useDebounced, useResource } from '../hooks/useResource'
 import {
-  ArrowUpRight,
-  CheckCircle2,
-  Clock3,
-  FileSearch,
-  Search,
-  UserRound,
-} from 'lucide-react'
-import { useMemo, useState } from 'react'
-import type { AuditEventRecord, OperationsFixture } from '../lib/operationsData'
-import '../styles/operationsPages.css'
+  EmptyState,
+  ErrorState,
+  LoadingRows,
+  PageHeader,
+  Pagination,
+  RefreshButton,
+  SearchField,
+  TonePill,
+} from '../components/primitives'
+
+const PAGE_SIZE = 25
+
+const EVENT_TYPES = [
+  'PAYMENT_ACCEPTED',
+  'JOURNAL_POSTED',
+  'PAYMENT_FINALIZED',
+  'IDEMPOTENT_REPLAY',
+  'RECONCILIATION_REQUIRED',
+  'RECONCILIATION_REPAIRED',
+  'RECONCILIATION_FINALIZED',
+  'RECONCILIATION_FLAGGED',
+]
 
 export interface AuditPageProps {
-  readonly fixture: OperationsFixture
   readonly onSelectPayment: (paymentId: string) => void
+  readonly reloadToken: number
 }
 
-const dateTime = new Intl.DateTimeFormat('en-US', {
-  month: 'short',
-  day: 'numeric',
-  year: 'numeric',
-  hour: 'numeric',
-  minute: '2-digit',
-  second: '2-digit',
-})
-
-function formatDate(value: string): string {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : dateTime.format(date)
-}
-
-function eventTone(state: AuditEventRecord['state']): 'success' | 'warning' | 'neutral' {
-  if (state === 'complete') return 'success'
-  if (state === 'warning') return 'warning'
-  return 'neutral'
-}
-
-export function AuditPage({ fixture, onSelectPayment }: AuditPageProps) {
+/**
+ * The append-only log.
+ *
+ * Rows are never edited or deleted anywhere in the system, so this page has no actions on
+ * it beyond reading and exporting — which is the point of an audit trail.
+ */
+export function AuditPage({ onSelectPayment, reloadToken }: AuditPageProps) {
   const [query, setQuery] = useState('')
-  const [actorFilter, setActorFilter] = useState('all')
-  const [typeFilter, setTypeFilter] = useState('all')
+  const [eventType, setEventType] = useState('')
+  const [page, setPage] = useState(0)
+  const debounced = useDebounced(query)
 
-  const actors = useMemo(
-    () => [...new Set(fixture.auditEvents.map((event) => event.actor))].sort(),
-    [fixture.auditEvents],
-  )
-  const eventTypes = useMemo(
-    () => [...new Set(fixture.auditEvents.map((event) => event.label))].sort(),
-    [fixture.auditEvents],
-  )
+  useEffect(() => setPage(0), [debounced, eventType])
 
-  const filteredEvents = useMemo(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase()
-    return [...fixture.auditEvents]
-      .filter((event) => {
-        const matchesActor = actorFilter === 'all' || event.actor === actorFilter
-        const matchesType = typeFilter === 'all' || event.label === typeFilter
-        const searchable = [
-          event.id,
-          event.paymentId,
-          event.label,
-          event.detail,
+  const load = useCallback(
+    (signal: AbortSignal) =>
+      consoleApi.auditEvents(debounced, eventType, page, PAGE_SIZE, signal),
+    [debounced, eventType, page],
+  )
+  const { data, error, loading, refreshing, reload } = useResource(load, [
+    debounced,
+    eventType,
+    page,
+    reloadToken,
+  ])
+
+  function exportCsv(rows: readonly AuditEventView[]) {
+    downloadCsv(
+      `clearledger-audit-${new Date().toISOString().slice(0, 10)}.csv`,
+      toCsv(
+        ['Recorded', 'Event', 'Actor', 'Payment', 'Detail'],
+        rows.map((event) => [
+          event.createdAt,
+          event.eventType,
           event.actor,
-          event.timestamp,
-        ].join(' ').toLocaleLowerCase()
-        return matchesActor && matchesType && (!normalizedQuery || searchable.includes(normalizedQuery))
-      })
-      .sort((left, right) => (
-        new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime()
-      ))
-  }, [actorFilter, fixture.auditEvents, query, typeFilter])
-
-  const filtersActive = Boolean(query || actorFilter !== 'all' || typeFilter !== 'all')
-
-  function resetFilters() {
-    setQuery('')
-    setActorFilter('all')
-    setTypeFilter('all')
+          event.paymentReference,
+          event.detail,
+        ]),
+      ),
+    )
   }
 
   return (
-    <div className="operations-page operations-page--audit">
-      <header className="operations-page__header">
-        <div>
-          <span className="operations-eyebrow">Immutable evidence</span>
-          <h1>Audit log</h1>
-          <p>Search the complete operator and system event stream for every payment.</p>
-        </div>
-        <div className="operations-page__summary">
-          <FileSearch size={19} aria-hidden="true" />
-          <span>
-            <strong>{fixture.auditEvents.length}</strong>
-            recorded events
+    <main className="page">
+      <PageHeader
+        eyebrow="Assurance"
+        title="Audit log"
+        lede="Append-only events written by the payment path, the ledger, and the reconciler."
+        tools={
+          <>
+            <RefreshButton onClick={reload} busy={refreshing} />
+            <button
+              type="button"
+              className="btn btn--secondary"
+              disabled={!data || data.items.length === 0}
+              onClick={() => data && exportCsv(data.items)}
+            >
+              Export CSV
+            </button>
+          </>
+        }
+      />
+
+      <section className="card">
+        <div className="card__body row row--wrap" style={{ padding: 'var(--space-4)' }}>
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <SearchField
+              value={query}
+              onChange={setQuery}
+              label="Search audit events"
+              placeholder="Detail, actor, or event type…"
+            />
+          </div>
+          <select
+            className="select"
+            style={{ width: 'auto' }}
+            value={eventType}
+            onChange={(event) => setEventType(event.target.value)}
+            aria-label="Filter by event type"
+          >
+            <option value="">All events</option>
+            {EVENT_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {type.toLowerCase().replace(/_/g, ' ')}
+              </option>
+            ))}
+          </select>
+          <span className="row text-caption text-tertiary">
+            <Lock size={12} aria-hidden="true" />
+            Read-only by design
           </span>
         </div>
-      </header>
+      </section>
 
-      <section className="operations-panel audit-stream" aria-labelledby="audit-stream-title">
-        <div className="operations-panel__header operations-panel__header--toolbar audit-toolbar">
-          <div>
-            <span className="operations-eyebrow">Event stream</span>
-            <h2 id="audit-stream-title">Operational activity</h2>
-            <p>{filteredEvents.length} events shown</p>
-          </div>
-          <div className="audit-filters">
-            <label className="operations-search operations-search--wide">
-              <span className="sr-only">Search audit events</span>
-              <Search size={16} aria-hidden="true" />
-              <input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search payment, actor, event…"
-              />
-            </label>
-            <label className="operations-select">
-              <span>Actor</span>
-              <select
-                aria-label="Audit actor"
-                value={actorFilter}
-                onChange={(event) => setActorFilter(event.target.value)}
-              >
-                <option value="all">All actors</option>
-                {actors.map((actor) => <option value={actor} key={actor}>{actor}</option>)}
-              </select>
-            </label>
-            <label className="operations-select">
-              <span>Event type</span>
-              <select
-                aria-label="Audit event type"
-                value={typeFilter}
-                onChange={(event) => setTypeFilter(event.target.value)}
-              >
-                <option value="all">All types</option>
-                {eventTypes.map((type) => <option value={type} key={type}>{type}</option>)}
-              </select>
-            </label>
-            {filtersActive ? (
-              <button type="button" className="operations-text-button" onClick={resetFilters}>
-                Reset filters
-              </button>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="operations-table-scroll audit-table-scroll">
-          <table className="operations-table audit-table" aria-label="Audit event stream">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Type</th>
-                <th>Actor</th>
-                <th>Payment</th>
-                <th>Event</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredEvents.map((event) => (
-                <tr key={event.id}>
-                  <td>
-                    <span className="audit-time">
-                      <Clock3 size={14} aria-hidden="true" />
-                      <time dateTime={event.timestamp}>{formatDate(event.timestamp)}</time>
-                    </span>
-                  </td>
-                  <td><strong className="table-primary">{event.label}</strong></td>
-                  <td>
-                    <span className="audit-actor">
-                      <UserRound size={14} aria-hidden="true" />
-                      {event.actor}
-                    </span>
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="operations-link operations-link--mono"
-                      aria-label={`Open payment ${event.paymentId}`}
-                      onClick={() => onSelectPayment(event.paymentId)}
-                    >
-                      {event.paymentId}
-                      <ArrowUpRight size={13} aria-hidden="true" />
-                    </button>
-                  </td>
-                  <td>
-                    <strong className="table-primary">{event.detail}</strong>
-                    <small className="table-secondary">{event.id}</small>
-                  </td>
-                  <td>
-                    <span className={`operation-badge operation-badge--${eventTone(event.state)}`}>
-                      {event.state}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {filteredEvents.length === 0 ? (
-          <div className="operations-empty" role="status">
-            <FileSearch size={23} aria-hidden="true" />
-            <strong>No audit events match these filters</strong>
-            <button type="button" className="operations-text-button" onClick={resetFilters}>
-              Reset filters
-            </button>
-          </div>
+      <section className="card card--flush">
+        {error && !data ? <ErrorState message={error} onRetry={reload} /> : null}
+        {loading && !data ? <LoadingRows rows={9} height={38} /> : null}
+        {data && data.items.length === 0 ? (
+          <EmptyState
+            title="No events match"
+            body="Every state change writes an event here. Try clearing the filters."
+          />
         ) : null}
 
-        <footer className="audit-stream__footer">
-          <CheckCircle2 size={15} aria-hidden="true" />
-          <span>Event records are append-only and retained for compliance review.</span>
-          <time dateTime={fixture.generatedAt}>Snapshot {formatDate(fixture.generatedAt)}</time>
-        </footer>
+        {data && data.items.length > 0 ? (
+          <>
+            <div className="table-scroll">
+              <table className="table table--interactive">
+                <thead>
+                  <tr>
+                    <th>Event</th>
+                    <th>Payment</th>
+                    <th>Detail</th>
+                    <th>Actor</th>
+                    <th>Recorded</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.items.map((event) => (
+                    <tr
+                      key={event.id}
+                      tabIndex={0}
+                      onClick={() => event.paymentId && onSelectPayment(event.paymentId)}
+                      onKeyDown={(keyEvent) => {
+                        if (keyEvent.key === 'Enter' && event.paymentId) {
+                          onSelectPayment(event.paymentId)
+                        }
+                      }}
+                    >
+                      <td>
+                        <span className="row">
+                          <span className="timeline__dot" data-tone={event.tone}>
+                            <FileText size={10} aria-hidden="true" />
+                          </span>
+                          {event.label}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="mono text-secondary">
+                          {event.paymentReference ?? '—'}
+                        </span>
+                      </td>
+                      <td className="text-secondary">{event.detail}</td>
+                      <td>
+                        <TonePill tone="neutral">{event.actor.toLowerCase()}</TonePill>
+                      </td>
+                      <td className="text-secondary">{formatFullTimestamp(event.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="card__footer">
+              <Pagination
+                page={data.page}
+                totalPages={data.totalPages}
+                totalItems={data.totalItems}
+                onChange={setPage}
+                noun="event"
+              />
+            </div>
+          </>
+        ) : null}
       </section>
-    </div>
+    </main>
   )
 }

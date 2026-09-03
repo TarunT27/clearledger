@@ -1,0 +1,219 @@
+/*
+ * ClearLedger design tokens.
+ *
+ * The palette, type ramp and materials follow Apple's platform conventions: a soft grey
+ * canvas, translucent chrome that samples what is behind it, one accent colour, and
+ * semantic colours reserved for state rather than decoration. Every value is defined once
+ * on :root in light, then re-declared for dark — nothing gets its only definition inside a
+ * media query, so a forced theme always has a complete palette.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* Type ------------------------------------------------------------------ */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display',
+    'Helvetica Neue', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+
+  --text-caption-2: 0.6875rem;
+  --text-caption: 0.75rem;
+  --text-footnote: 0.8125rem;
+  --text-subhead: 0.875rem;
+  --text-body: 0.9375rem;
+  --text-headline: 1.0625rem;
+  --text-title-3: 1.25rem;
+  --text-title-2: 1.5rem;
+  --text-title-1: 2rem;
+  --text-display: 2.75rem;
+
+  /* Spacing (4pt grid) ---------------------------------------------------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Radii ----------------------------------------------------------------- */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 28px;
+  --radius-pill: 980px;
+
+  /* Motion ---------------------------------------------------------------- */
+  --ease-out: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --duration-fast: 140ms;
+  --duration: 260ms;
+  --duration-slow: 420ms;
+
+  /* Light palette --------------------------------------------------------- */
+  --canvas: #f2f2f5;
+  --canvas-gradient: radial-gradient(120% 120% at 10% -10%, #ffffff 0%, #f2f2f5 46%, #ececed 100%);
+  --surface: #ffffff;
+  --surface-translucent: rgba(255, 255, 255, 0.72);
+  --surface-sunken: #f7f7f9;
+  --surface-hover: rgba(0, 0, 0, 0.035);
+  --surface-active: rgba(0, 0, 0, 0.06);
+  --sidebar: rgba(246, 246, 248, 0.78);
+
+  --hairline: rgba(0, 0, 0, 0.09);
+  --hairline-strong: rgba(0, 0, 0, 0.16);
+
+  --label: #1d1d1f;
+  --label-secondary: #56565a;
+  --label-tertiary: #8a8a8e;
+  --label-quaternary: #b0b0b5;
+
+  --accent: #0071e3;
+  --accent-hover: #0060c0;
+  --accent-soft: rgba(0, 113, 227, 0.1);
+  --accent-ring: rgba(0, 113, 227, 0.28);
+  --on-accent: #ffffff;
+
+  --green: #1d8a4b;
+  --green-soft: rgba(52, 199, 89, 0.14);
+  --orange: #b25e04;
+  --orange-soft: rgba(255, 159, 10, 0.16);
+  --red: #d02f24;
+  --red-soft: rgba(255, 59, 48, 0.12);
+  --purple: #7a3ab5;
+  --purple-soft: rgba(175, 82, 222, 0.12);
+  --graphite: #5b5b60;
+  --graphite-soft: rgba(0, 0, 0, 0.06);
+
+  /* Chart series, tuned to stay distinguishable in both themes. */
+  --series-approved: #34a853;
+  --series-review: #f0a020;
+  --series-rejected: #e05248;
+  --series-pending: #7d7d85;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05), 0 1px 1px rgba(0, 0, 0, 0.03);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.07), 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.13), 0 2px 8px rgba(0, 0, 0, 0.05);
+  --shadow-pop: 0 24px 70px rgba(0, 0, 0, 0.22), 0 2px 10px rgba(0, 0, 0, 0.08);
+
+  --blur: saturate(180%) blur(20px);
+
+  --sidebar-width: 244px;
+  --toolbar-height: 56px;
+  --content-max: 1360px;
+}
+
+/* Dark palette ------------------------------------------------------------ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --canvas: #0b0b0d;
+    --canvas-gradient: radial-gradient(120% 120% at 8% -10%, #1d1d21 0%, #101013 48%, #08080a 100%);
+    --surface: #171719;
+    --surface-translucent: rgba(28, 28, 31, 0.72);
+    --surface-sunken: #101012;
+    --surface-hover: rgba(255, 255, 255, 0.055);
+    --surface-active: rgba(255, 255, 255, 0.09);
+    --sidebar: rgba(22, 22, 25, 0.76);
+
+    --hairline: rgba(255, 255, 255, 0.1);
+    --hairline-strong: rgba(255, 255, 255, 0.2);
+
+    --label: #f5f5f7;
+    --label-secondary: #a9a9ae;
+    --label-tertiary: #7c7c82;
+    --label-quaternary: #5a5a60;
+
+    --accent: #0a84ff;
+    --accent-hover: #339bff;
+    --accent-soft: rgba(10, 132, 255, 0.18);
+    --accent-ring: rgba(10, 132, 255, 0.4);
+    --on-accent: #ffffff;
+
+    --green: #32d365;
+    --green-soft: rgba(48, 209, 88, 0.16);
+    --orange: #ffb02e;
+    --orange-soft: rgba(255, 159, 10, 0.18);
+    --red: #ff6961;
+    --red-soft: rgba(255, 69, 58, 0.16);
+    --purple: #c07df0;
+    --purple-soft: rgba(191, 90, 242, 0.16);
+    --graphite: #9a9aa0;
+    --graphite-soft: rgba(255, 255, 255, 0.08);
+
+    --series-approved: #30d158;
+    --series-review: #ffb02e;
+    --series-rejected: #ff6961;
+    --series-pending: #8e8e95;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+    --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 20px 52px rgba(0, 0, 0, 0.62);
+    --shadow-pop: 0 28px 80px rgba(0, 0, 0, 0.72);
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --canvas: #0b0b0d;
+  --canvas-gradient: radial-gradient(120% 120% at 8% -10%, #1d1d21 0%, #101013 48%, #08080a 100%);
+  --surface: #171719;
+  --surface-translucent: rgba(28, 28, 31, 0.72);
+  --surface-sunken: #101012;
+  --surface-hover: rgba(255, 255, 255, 0.055);
+  --surface-active: rgba(255, 255, 255, 0.09);
+  --sidebar: rgba(22, 22, 25, 0.76);
+
+  --hairline: rgba(255, 255, 255, 0.1);
+  --hairline-strong: rgba(255, 255, 255, 0.2);
+
+  --label: #f5f5f7;
+  --label-secondary: #a9a9ae;
+  --label-tertiary: #7c7c82;
+  --label-quaternary: #5a5a60;
+
+  --accent: #0a84ff;
+  --accent-hover: #339bff;
+  --accent-soft: rgba(10, 132, 255, 0.18);
+  --accent-ring: rgba(10, 132, 255, 0.4);
+  --on-accent: #ffffff;
+
+  --green: #32d365;
+  --green-soft: rgba(48, 209, 88, 0.16);
+  --orange: #ffb02e;
+  --orange-soft: rgba(255, 159, 10, 0.18);
+  --red: #ff6961;
+  --red-soft: rgba(255, 69, 58, 0.16);
+  --purple: #c07df0;
+  --purple-soft: rgba(191, 90, 242, 0.16);
+  --graphite: #9a9aa0;
+  --graphite-soft: rgba(255, 255, 255, 0.08);
+
+  --series-approved: #30d158;
+  --series-review: #ffb02e;
+  --series-rejected: #ff6961;
+  --series-pending: #8e8e95;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 20px 52px rgba(0, 0, 0, 0.62);
+  --shadow-pop: 0 28px 80px rgba(0, 0, 0, 0.72);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

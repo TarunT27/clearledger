@@ -15,12 +15,25 @@ docker compose ps
 curl --fail http://localhost:8088/healthz
 ```
 
+If Docker is unavailable, the same demo runs with an in-process PostgreSQL:
+
+```bash
+./mvnw -Plocal spring-boot:run -Dspring-boot.run.profiles=local,demo
+npm --prefix frontend ci && npm --prefix frontend run dev   # second terminal
+```
+
 Open [http://localhost:8088](http://localhost:8088) at a wide desktop viewport. Keep a
 terminal beside the browser so the system behavior and API evidence can be shown
 together.
 
 Start on **Overview** to establish the live operations context, then open **Scenario
 lab** from the left navigation for the deterministic safety demonstrations.
+
+A useful opening line, before any scenario: *"Nothing on this screen is fixture data. The
+API seeded two months of history through the real risk engine and the real journal
+factory, and every figure here is computed from those tables on read."* If asked to prove
+it, open **Ledger** — the balanced/unbalanced verdict beside each journal is summed in SQL
+from that journal's own entries.
 
 ## Opening — 30 seconds
 
@@ -98,13 +111,29 @@ Pause on the incomplete state:
 Say: “This distinction is essential. I am not repairing half a journal. I am recovering
 a status projection around an already durable, balanced financial fact.”
 
-Run reconciliation:
+Now open **Reconciliation**. The case shows three things worth naming out loud: the
+committed journal with its two totals, the action the planner would take
+(*Finalize approved*), and the row version the repair expects.
+
+Before repairing, note the journal count on the **Ledger** page. Repair the case, then
+return to the ledger: the count is unchanged. That is the whole claim, visible in two
+numbers.
+
+The toast reports the compare-and-swap it committed — *version 1 → 2*. Press **Repair
+safely** on an already-repaired case and it comes back as *already resolved* rather than
+an error: losing the race is the guarantee working.
+
+The same sweep is available over the API:
 
 ```bash
 curl --fail-with-body \
   -H "X-ClearLedger-Request: ClearLedgerConsole" \
   -X POST http://localhost:8088/api/v1/reconciliation/runs
 ```
+
+Mention that the background worker is paused in the demo profile, and that the console
+says so rather than hiding it — the manual repair calls exactly the same service the
+scheduler does, so no weaker path exists for the UI.
 
 Expected result:
 
@@ -131,9 +160,11 @@ reconciliation → verify journal → plan → CAS status update → audit
 ## Close — 30 seconds
 
 “The project’s core claim is not that failures disappear. It is that failure states are
-durable, explainable, detectable, and safe to reconcile. Tests exercise concurrent
-duplicates against PostgreSQL Testcontainers, the three browser journeys run in
-Playwright, and tagged builds publish attested API and web images to GHCR.”
+durable, explainable, detectable, and safe to reconcile — and that the operator's view of
+them is derived from the ledger rather than asserted alongside it. Tests exercise
+concurrent duplicates and the full console read model against PostgreSQL Testcontainers,
+the browser journeys run in Playwright against the composed stack at desktop and phone
+widths, and tagged builds publish attested API and web images to GHCR.”
 
 ## Reset
 
@@ -155,4 +186,6 @@ environment containing data you intend to preserve.
 | API readiness fails | `docker compose logs api`; confirm datasource variables |
 | PostgreSQL is unhealthy | replace placeholder password and inspect `docker compose logs postgres` |
 | Port 8088 is occupied | set a different `WEB_PORT` in `.env` |
-| Browser data looks stale | rerun a scenario endpoint; do not manually edit database rows |
+| Browser data looks stale | use **Refresh** on the page; the overview and reconciliation views also poll |
+| Sidebar shows "API unreachable" | the console reached nginx but not the API — `docker compose logs api` |
+| Reconciliation queue is empty | expected once every payment is final; run the timeout scenario to create one |

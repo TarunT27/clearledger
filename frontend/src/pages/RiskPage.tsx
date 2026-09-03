@@ -1,267 +1,243 @@
+import { Gauge, ShieldCheck } from 'lucide-react'
+import { useCallback } from 'react'
+import { consoleApi } from '../lib/consoleApi'
+import type { PaymentRow, RangeId } from '../lib/consoleTypes'
+import { formatCount, formatDateTime, formatMoney, formatPercent } from '../lib/format'
+import { useResource } from '../hooks/useResource'
 import {
-  ArrowUpRight,
-  CheckCircle2,
-  CircleAlert,
-  Gauge,
-  ShieldAlert,
-  TrendingDown,
-  TrendingUp,
-} from 'lucide-react'
-import { useMemo, useState } from 'react'
-import type {
-  OperationsFixture,
-  OperationsTone,
-  RiskDecision,
-} from '../lib/operationsData'
-import '../styles/operationsPages.css'
+  EmptyState,
+  ErrorState,
+  LoadingRows,
+  Meter,
+  Money,
+  PageHeader,
+  RefreshButton,
+  Segmented,
+  StatusPill,
+} from '../components/primitives'
 
-export interface RiskPageProps {
-  readonly fixture: OperationsFixture
-  readonly onSelectPayment: (paymentId: string) => void
-}
-
-type DecisionFilter = 'all' | RiskDecision
-
-const decisionOrder: readonly RiskDecision[] = [
-  'Approved',
-  'Review',
-  'Rejected',
-  'Unknown',
+const RANGES = [
+  { value: '24h' as const, label: '24 hours' },
+  { value: '7d' as const, label: '7 days' },
+  { value: '30d' as const, label: '30 days' },
 ]
 
-function toneForDecision(decision: RiskDecision): OperationsTone {
-  if (decision === 'Approved') return 'success'
-  if (decision === 'Review') return 'warning'
-  if (decision === 'Rejected') return 'danger'
-  return 'neutral'
+export interface RiskPageProps {
+  readonly range: RangeId
+  readonly onRangeChange: (range: RangeId) => void
+  readonly onSelectPayment: (paymentId: string) => void
+  readonly reloadToken: number
 }
 
-function formatMoney(amount: number, currency: string): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-  }).format(amount)
-}
-
-export function RiskPage({ fixture, onSelectPayment }: RiskPageProps) {
-  const [statusFilter, setStatusFilter] = useState<DecisionFilter>('Review')
-
-  const decisionDistribution = useMemo(
-    () => decisionOrder.map((decision) => ({
-      decision,
-      count: fixture.payments.filter((payment) => payment.riskDecision === decision).length,
-      tone: toneForDecision(decision),
-    })),
-    [fixture.payments],
-  )
-
-  const queue = useMemo(
-    () => fixture.payments.filter((payment) => (
-      statusFilter === 'all' || payment.riskDecision === statusFilter
-    )),
-    [fixture.payments, statusFilter],
-  )
-
-  const evaluatedCount = fixture.payments.length
-  const approvedCount = decisionDistribution.find(
-    (item) => item.decision === 'Approved',
-  )?.count ?? 0
-  const reviewCount = decisionDistribution.find(
-    (item) => item.decision === 'Review',
-  )?.count ?? 0
-  const rejectedCount = decisionDistribution.find(
-    (item) => item.decision === 'Rejected',
-  )?.count ?? 0
+/**
+ * The risk workbench.
+ *
+ * The policy panel reports the thresholds the engine is actually compiled with — they are
+ * read from the running engine and sent down with the report — so the page cannot drift
+ * out of step with the rules the way a hand-written summary would.
+ */
+export function RiskPage({ range, onRangeChange, onSelectPayment, reloadToken }: RiskPageProps) {
+  const load = useCallback((signal: AbortSignal) => consoleApi.risk(range, signal), [range])
+  const { data, error, loading, refreshing, reload } = useResource(load, [range, reloadToken])
 
   return (
-    <div className="operations-page operations-page--risk">
-      <header className="operations-page__header">
-        <div>
-          <span className="operations-eyebrow">Decision controls</span>
-          <h1>Risk monitoring</h1>
-          <p>Monitor policy outcomes, rule pressure, and payments requiring intervention.</p>
-        </div>
-        <div className="operations-page__summary operations-page__summary--warning">
-          <ShieldAlert size={19} aria-hidden="true" />
-          <span>
-            <strong>{reviewCount}</strong>
-            decisions need review
-          </span>
-        </div>
-      </header>
+    <main className="page">
+      <PageHeader
+        eyebrow="Policy"
+        title="Risk"
+        lede="Which rules fired, what they cost a payment, and who is waiting on a human."
+        tools={
+          <>
+            <Segmented
+              options={RANGES}
+              value={range}
+              onChange={onRangeChange}
+              label="Reporting window"
+            />
+            <RefreshButton onClick={reload} busy={refreshing} />
+          </>
+        }
+      />
 
-      <section className="risk-kpis" aria-label="Risk decision KPIs">
-        <article className="risk-kpi">
-          <span className="risk-kpi__icon risk-kpi__icon--info"><Gauge size={18} /></span>
-          <div><span>Evaluated</span><strong>{evaluatedCount}</strong></div>
-          <small>Current operations set</small>
-        </article>
-        <article className="risk-kpi">
-          <span className="risk-kpi__icon risk-kpi__icon--success"><CheckCircle2 size={18} /></span>
-          <div><span>Auto-approved</span><strong>{approvedCount}</strong></div>
-          <small>{evaluatedCount ? Math.round((approvedCount / evaluatedCount) * 100) : 0}% of decisions</small>
-        </article>
-        <article className="risk-kpi">
-          <span className="risk-kpi__icon risk-kpi__icon--warning"><CircleAlert size={18} /></span>
-          <div><span>Manual review</span><strong>{reviewCount}</strong></div>
-          <small>Queued for an operator</small>
-        </article>
-        <article className="risk-kpi">
-          <span className="risk-kpi__icon risk-kpi__icon--danger"><ShieldAlert size={18} /></span>
-          <div><span>Rejected</span><strong>{rejectedCount}</strong></div>
-          <small>Blocked by policy</small>
-        </article>
-      </section>
+      {error && !data ? (
+        <div className="card">
+          <ErrorState message={error} onRetry={reload} />
+        </div>
+      ) : null}
+      {loading && !data ? <LoadingRows rows={5} height={80} /> : null}
 
-      <div className="risk-monitoring-grid">
-        <section className="operations-panel risk-distribution" aria-labelledby="decision-distribution-title">
-          <div className="operations-panel__header">
-            <div>
-              <span className="operations-eyebrow">Current mix</span>
-              <h2 id="decision-distribution-title">Decision distribution</h2>
-            </div>
-            <span className="operations-panel__meta">{evaluatedCount} decisions</span>
-          </div>
-          <div className="decision-distribution__list">
-            {decisionDistribution.map((item) => {
-              const share = evaluatedCount ? Math.round((item.count / evaluatedCount) * 100) : 0
-              return (
-                <div className="decision-distribution__row" key={item.decision}>
-                  <div>
-                    <span className={`operation-dot operation-dot--${item.tone}`} aria-hidden="true" />
-                    <span>{item.decision}</span>
-                    <strong>{item.count}</strong>
-                  </div>
-                  <div
-                    className="decision-progress"
-                    role="progressbar"
-                    aria-label={`${item.decision} decisions`}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={share}
-                  >
-                    <span
-                      className={`decision-progress__fill decision-progress__fill--${item.tone}`}
-                      style={{ width: `${share}%` }}
-                    />
-                  </div>
-                  <small>{share}%</small>
+      {data ? (
+        <>
+          <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(300px, 1fr)' }}>
+            <section className="card">
+              <div className="card__header">
+                <div>
+                  <div className="eyebrow">{data.rangeLabel}</div>
+                  <h2 className="card__title">Signal activity</h2>
+                  <p className="card__subtitle">
+                    {formatCount(data.assessedPayments)} payments assessed · average score{' '}
+                    {data.averageScore.toFixed(1)}
+                  </p>
                 </div>
-              )
-            })}
-          </div>
-        </section>
+                <Gauge size={16} className="text-tertiary" aria-hidden="true" />
+              </div>
+              <div className="card__body stack">
+                {data.signals.every((signal) => signal.count === 0) ? (
+                  <p className="text-footnote text-secondary">
+                    Nothing fired in this window — every payment cleared all four rules.
+                  </p>
+                ) : (
+                  data.signals.map((signal) => (
+                    <Meter
+                      key={signal.code}
+                      label={signal.label}
+                      value={signal.count}
+                      total={Math.max(...data.signals.map((item) => item.count), 1)}
+                      color="var(--accent)"
+                      trailing={
+                        <>
+                          {formatCount(signal.count)}{' '}
+                          <span className="text-tertiary">
+                            {formatPercent(signal.share, 0)} of signals
+                          </span>
+                        </>
+                      }
+                    />
+                  ))
+                )}
+              </div>
+            </section>
 
-        <section className="operations-panel risk-rules" aria-labelledby="risk-rules-title">
-          <div className="operations-panel__header">
-            <div>
-              <span className="operations-eyebrow">Policy signals</span>
-              <h2 id="risk-rules-title">Rule summaries</h2>
-            </div>
-            <span className="operations-panel__meta">Last 24 hours</span>
+            <section className="card">
+              <div className="card__header">
+                <div>
+                  <div className="eyebrow">Live thresholds</div>
+                  <h2 className="card__title">Policy in force</h2>
+                  <p className="card__subtitle">Read from the running risk engine.</p>
+                </div>
+                <ShieldCheck size={16} className="text-tertiary" aria-hidden="true" />
+              </div>
+              <div className="card__body">
+                <dl className="datalist">
+                  <dt>Unusual amount</dt>
+                  <dd>at or above {formatMoney(data.policy.unusualAmountMinor)}</dd>
+                  <dt>Repeated attempts</dt>
+                  <dd>
+                    {data.policy.repeatedAttemptLimit} or more in{' '}
+                    {data.policy.attemptWindowMinutes} minutes
+                  </dd>
+                  <dt>New recipient</dt>
+                  <dd>no earlier approved payment to this party</dd>
+                  <dt>Velocity limit</dt>
+                  <dd>
+                    over {formatMoney(data.policy.velocityLimitMinor)} approved in{' '}
+                    {data.policy.velocityWindowMinutes / 60} hour
+                  </dd>
+                  <dt>Review at</dt>
+                  <dd>score {data.policy.reviewScoreThreshold} or higher</dd>
+                  <dt>Reject at</dt>
+                  <dd>any velocity breach, regardless of score</dd>
+                </dl>
+              </div>
+            </section>
           </div>
-          <div className="risk-rule-grid">
-            {fixture.riskSignals.slice(0, 4).map((signal) => {
-              const TrendIcon = signal.trend <= 0 ? TrendingDown : TrendingUp
-              return (
-                <article className="risk-rule" key={signal.label}>
-                  <div className="risk-rule__topline">
-                    <span className={`operation-dot operation-dot--${signal.tone}`} aria-hidden="true" />
-                    <span>{signal.label}</span>
-                  </div>
-                  <strong>{signal.count}</strong>
-                  <small className={signal.trend <= 0 ? 'text-success' : 'text-warning'}>
-                    <TrendIcon size={13} aria-hidden="true" />
-                    {Math.abs(signal.trend)}% vs prior period
-                  </small>
-                </article>
-              )
-            })}
-          </div>
-        </section>
-      </div>
 
-      <section className="operations-panel review-queue" aria-labelledby="review-queue-title">
-        <div className="operations-panel__header operations-panel__header--toolbar">
-          <div>
-            <span className="operations-eyebrow">Operator workflow</span>
-            <h2 id="review-queue-title">Manual-review queue</h2>
-            <p>{queue.length} payments in the selected decision state</p>
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))' }}>
+            <QueueCard
+              eyebrow="Awaiting an analyst"
+              title="Review queue"
+              empty="No payment is waiting on a human right now."
+              rows={data.reviewQueue}
+              onSelectPayment={onSelectPayment}
+            />
+            <QueueCard
+              eyebrow="Blocked by policy"
+              title="Rejected"
+              empty="No payment has been rejected in this book."
+              rows={data.rejectedQueue}
+              onSelectPayment={onSelectPayment}
+            />
           </div>
-          <label className="operations-select">
-            <span>Risk status</span>
-            <select
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value as DecisionFilter)}
-            >
-              <option value="all">All decisions</option>
-              {decisionOrder.map((decision) => (
-                <option value={decision} key={decision}>{decision}</option>
-              ))}
-            </select>
-          </label>
+        </>
+      ) : null}
+    </main>
+  )
+}
+
+function QueueCard({
+  eyebrow,
+  title,
+  empty,
+  rows,
+  onSelectPayment,
+}: {
+  readonly eyebrow: string
+  readonly title: string
+  readonly empty: string
+  readonly rows: readonly PaymentRow[]
+  readonly onSelectPayment: (paymentId: string) => void
+}) {
+  return (
+    <section className="card card--flush">
+      <div className="card__header">
+        <div>
+          <div className="eyebrow">{eyebrow}</div>
+          <h2 className="card__title">{title}</h2>
         </div>
-
-        <div className="operations-table-scroll">
-          <table className="operations-table" aria-label="Manual-review queue">
+        {rows.length > 0 ? <span className="pill pill--neutral">{rows.length}</span> : null}
+      </div>
+      {rows.length === 0 ? (
+        <EmptyState title="Queue is clear" body={empty} />
+      ) : (
+        <div className="table-scroll">
+          <table className="table table--interactive">
             <thead>
               <tr>
                 <th>Payment</th>
-                <th>Merchant</th>
                 <th className="numeric">Amount</th>
-                <th>Decision</th>
-                <th>Score</th>
-                <th>Policy</th>
-                <th><span className="sr-only">Action</span></th>
+                <th>Signals</th>
+                <th>Status</th>
+                <th>Created</th>
               </tr>
             </thead>
             <tbody>
-              {queue.map((payment) => (
-                <tr key={payment.id}>
-                  <td><code>{payment.id}</code></td>
+              {rows.map((payment) => (
+                <tr
+                  key={payment.id}
+                  tabIndex={0}
+                  onClick={() => onSelectPayment(payment.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') onSelectPayment(payment.id)
+                  }}
+                >
                   <td>
-                    <strong className="table-primary">{payment.merchant}</strong>
-                    <small className="table-secondary">{payment.recipient}</small>
+                    <div className="stack stack--tight">
+                      <span className="mono">{payment.reference}</span>
+                      <span className="text-caption text-tertiary truncate">
+                        {payment.recipient.displayName}
+                      </span>
+                    </div>
                   </td>
-                  <td className="numeric">{formatMoney(payment.amount, payment.currency)}</td>
+                  <td className="numeric">
+                    <Money amountMinor={payment.amountMinor} currency={payment.currency} />
+                  </td>
+                  <td className="text-caption text-secondary">
+                    {payment.riskSignals.length === 0
+                      ? '—'
+                      : payment.riskSignals
+                          .map((code) => code.toLowerCase().replace(/_/g, ' '))
+                          .join(', ')}
+                  </td>
                   <td>
-                    <span className={`operation-badge operation-badge--${toneForDecision(payment.riskDecision)}`}>
-                      {payment.riskDecision}
-                    </span>
+                    <StatusPill status={payment.status} />
                   </td>
-                  <td>{payment.riskEvidence.score.toFixed(2)}</td>
-                  <td>{payment.riskEvidence.policy}</td>
-                  <td className="table-action">
-                    <button
-                      type="button"
-                      className="operations-icon-link"
-                      aria-label={`Open risk evidence for ${payment.id}`}
-                      onClick={() => onSelectPayment(payment.id)}
-                    >
-                      <ArrowUpRight size={16} aria-hidden="true" />
-                    </button>
-                  </td>
+                  <td className="text-secondary">{formatDateTime(payment.createdAt)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-
-        {queue.length === 0 ? (
-          <div className="operations-empty" role="status">
-            <CheckCircle2 size={22} aria-hidden="true" />
-            <strong>No payments match this risk status</strong>
-            <button
-              type="button"
-              className="operations-text-button"
-              onClick={() => setStatusFilter('Review')}
-            >
-              Show review queue
-            </button>
-          </div>
-        ) : null}
-      </section>
-    </div>
+      )}
+    </section>
   )
 }

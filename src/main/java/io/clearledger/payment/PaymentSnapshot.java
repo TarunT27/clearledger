@@ -8,6 +8,7 @@ import java.util.UUID;
 
 public record PaymentSnapshot(
         UUID id,
+        String reference,
         UUID senderId,
         UUID recipientId,
         long amountMinor,

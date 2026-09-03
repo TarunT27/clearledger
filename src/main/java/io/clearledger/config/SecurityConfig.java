@@ -41,7 +41,8 @@ public class SecurityConfig {
                                                 "/actuator/info",
                                                 "/actuator/metrics/**",
                                                 "/actuator/prometheus",
-                                                "/api/v1/reconciliation/**")
+                                                "/api/v1/reconciliation/**",
+                                                "/api/v1/console/reconciliation/**")
                                         .hasRole("OPS")
                                         .anyRequest()
                                         .authenticated();

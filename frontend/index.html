@@ -3,12 +3,27 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#061421" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f2f2f5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b0b0d" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="/assets/clearledger-mark.png" />
     <meta
       name="description"
-      content="ClearLedger real-time payment risk and reconciliation operations console"
+      content="ClearLedger — real-time payment risk and reconciliation operations console"
     />
     <title>ClearLedger · Payment Operations</title>
+    <script>
+      // Apply the stored appearance before first paint so a dark-mode reload never flashes
+      // the light palette. "system" intentionally stamps nothing.
+      try {
+        var stored = localStorage.getItem('clearledger.theme')
+        if (stored === 'light' || stored === 'dark') {
+          document.documentElement.setAttribute('data-theme', stored)
+        }
+      } catch (error) {
+        /* private windows throw; the system palette is a fine default */
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

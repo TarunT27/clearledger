@@ -4,9 +4,11 @@ import java.util.List;
 
 public final class RiskEngine {
 
-    static final long UNUSUAL_AMOUNT_MINOR = 1_000_000;
-    static final int REPEATED_ATTEMPT_LIMIT = 3;
-    static final long VELOCITY_LIMIT_MINOR = 2_500_000;
+    public static final long UNUSUAL_AMOUNT_MINOR = 1_000_000;
+    public static final int REPEATED_ATTEMPT_LIMIT = 3;
+    public static final long VELOCITY_LIMIT_MINOR = 2_500_000;
+    /** A score at or above this routes the payment to a human instead of approving it. */
+    public static final int REVIEW_SCORE_THRESHOLD = 40;
 
     public RiskAssessment assess(RiskContext context) {
         boolean unusualAmount = context.amountMinor() >= UNUSUAL_AMOUNT_MINOR;
@@ -48,7 +50,9 @@ public final class RiskEngine {
         RiskDecision decision =
                 velocityLimit
                         ? RiskDecision.REJECTED
-                        : score >= 40 ? RiskDecision.REVIEW : RiskDecision.APPROVED;
+                        : score >= REVIEW_SCORE_THRESHOLD
+                                ? RiskDecision.REVIEW
+                                : RiskDecision.APPROVED;
         return new RiskAssessment(decision, score, signals);
     }
 

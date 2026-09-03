@@ -31,7 +31,14 @@ export default defineConfig({
         statements: 80,
         branches: 70,
       },
-      exclude: ['src/main.tsx', 'src/test/**', 'src/**/*.d.ts', 'src/types.ts'],
+      // Type-only modules compile away to nothing, so counting their lines would
+      // measure declaration volume rather than tested behaviour.
+      exclude: [
+        'src/main.tsx',
+        'src/test/**',
+        'src/**/*.d.ts',
+        'src/lib/consoleTypes.ts',
+      ],
     },
   },
 })

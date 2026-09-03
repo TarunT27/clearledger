@@ -1,361 +1,412 @@
+import { Activity, ArrowRight, BookOpen, ShieldAlert } from 'lucide-react'
+import { useCallback } from 'react'
+import { consoleApi } from '../lib/consoleApi'
+import type { RangeId, ThroughputBucket } from '../lib/consoleTypes'
 import {
-  Activity,
-  ArrowRight,
-  CheckCircle2,
-  Clock3,
-  CreditCard,
-  RefreshCw,
-  ShieldAlert,
-  TrendingUp,
-  WalletCards,
-} from 'lucide-react'
-import { useMemo, useState } from 'react'
-import type {
-  OperationsFixture,
-  OperationsTone,
-  OverviewRange,
-  PaymentRecord,
-} from '../lib/operationsData'
-import '../styles/overview.css'
+  formatCount,
+  formatDateTime,
+  formatMoney,
+  formatMoneyCompact,
+  formatPercent,
+  formatRelative,
+} from '../lib/format'
+import { useResource } from '../hooks/useResource'
+import {
+  EmptyState,
+  ErrorState,
+  LoadingRows,
+  Meter,
+  MetricCard,
+  Money,
+  PageHeader,
+  RefreshButton,
+  Segmented,
+  SeverityPill,
+  StatusPill,
+} from '../components/primitives'
+import type { ViewId } from '../components/AppShell'
 
-export interface OverviewPageProps {
-  readonly data: OperationsFixture
-  readonly onNavigate: (view: 'payments' | 'risk' | 'reconciliation') => void
-  readonly onSelectPayment: (id: string) => void
-}
-
-const ranges: readonly { value: OverviewRange; label: string }[] = [
-  { value: '24h', label: '24 hours' },
-  { value: '7d', label: '7 days' },
-  { value: '30d', label: '30 days' },
+const RANGES = [
+  { value: '24h' as const, label: '24 hours' },
+  { value: '7d' as const, label: '7 days' },
+  { value: '30d' as const, label: '30 days' },
 ]
 
-const money = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-  notation: 'compact',
-  maximumFractionDigits: 1,
-})
+const SERIES = [
+  { key: 'approved', label: 'Approved', className: 'approved', color: 'var(--series-approved)' },
+  { key: 'review', label: 'Review', className: 'review', color: 'var(--series-review)' },
+  { key: 'rejected', label: 'Rejected', className: 'rejected', color: 'var(--series-rejected)' },
+  { key: 'pending', label: 'Pending', className: 'pending', color: 'var(--series-pending)' },
+] as const
 
-const exactMoney = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-  minimumFractionDigits: 2,
-})
-
-const shortTime = new Intl.DateTimeFormat('en-US', {
-  hour: 'numeric',
-  minute: '2-digit',
-})
-
-function formatTime(value: string): string {
-  const timestamp = new Date(value)
-  return Number.isNaN(timestamp.getTime()) ? value : shortTime.format(timestamp)
+export interface OverviewPageProps {
+  readonly range: RangeId
+  readonly onRangeChange: (range: RangeId) => void
+  readonly onNavigate: (view: ViewId) => void
+  readonly onSelectPayment: (paymentId: string) => void
 }
 
-function toneClass(tone: OperationsTone): string {
-  return `overview-tone overview-tone--${tone}`
-}
-
-function StatusBadge({ payment }: { readonly payment: PaymentRecord }) {
-  return (
-    <span className={toneClass(payment.statusTone)}>
-      <span aria-hidden="true" />
-      {payment.status}
-    </span>
-  )
-}
-
-export function OverviewPage({ data, onNavigate, onSelectPayment }: OverviewPageProps) {
-  const [range, setRange] = useState<OverviewRange>('24h')
-  const [refreshedAt, setRefreshedAt] = useState(data.generatedAt)
-  const snapshot = data.overview[range]
-
-  const openCases = useMemo(
-    () => data.reconciliationCases.filter((item) => item.state !== 'Repaired').slice(0, 4),
-    [data.reconciliationCases],
-  )
-  const balancedJournalCount = useMemo(
-    () => data.journals.filter((journal) => journal.balanced).length,
-    [data.journals],
-  )
-  const recentPayments = data.payments.slice(0, 6)
-  const totalStatuses = data.statusDistribution.reduce((sum, item) => sum + item.count, 0)
-  const chartMaximum = Math.max(
-    ...snapshot.chartPoints.map((point) => point.approved + point.review + point.rejected),
-    1,
-  )
+export function OverviewPage({
+  range,
+  onRangeChange,
+  onNavigate,
+  onSelectPayment,
+}: OverviewPageProps) {
+  const load = useCallback((signal: AbortSignal) => consoleApi.overview(range, signal), [range])
+  const { data, error, loading, refreshing, reload } = useResource(load, [range], {
+    pollMs: 30_000,
+  })
 
   return (
-    <div className="overview-page">
-      <header className="overview-page__header">
-        <div>
-          <p className="overview-page__eyebrow">Payment operations</p>
-          <h1>Operations overview</h1>
-          <p>Monitor payment decisions, posting integrity, and recovery work in real time.</p>
+    <main className="page">
+      <PageHeader
+        eyebrow="Payment operations"
+        title="Operations overview"
+        lede="Decision mix, posting integrity, and recovery work, computed from the ledger itself."
+        tools={
+          <>
+            <Segmented
+              options={RANGES}
+              value={range}
+              onChange={onRangeChange}
+              label="Reporting window"
+            />
+            <RefreshButton onClick={reload} busy={refreshing} />
+          </>
+        }
+      />
+
+      {error && !data ? (
+        <div className="card">
+          <ErrorState message={error} onRetry={reload} />
         </div>
-        <div className="overview-page__controls">
-          <div className="overview-page__range" aria-label="Overview time range">
-            {ranges.map((item) => (
-              <button
-                key={item.value}
-                type="button"
-                aria-pressed={range === item.value}
-                onClick={() => setRange(item.value)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-          <button
-            className="overview-page__refresh"
-            type="button"
-            onClick={() => setRefreshedAt(new Date().toISOString())}
+      ) : null}
+
+      {loading && !data ? (
+        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+          {Array.from({ length: 4 }, (_, index) => (
+            <div key={index} className="skeleton" style={{ height: 118, borderRadius: 16 }} />
+          ))}
+        </div>
+      ) : null}
+
+      {data ? (
+        <>
+          <div
+            className="grid"
+            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
           >
-            <RefreshCw size={16} aria-hidden="true" />
-            Refresh
-          </button>
-        </div>
-      </header>
-
-      <div className="overview-page__freshness" role="status">
-        <span aria-hidden="true" />
-        Live operations snapshot
-        <time dateTime={refreshedAt}>Updated {formatTime(refreshedAt)}</time>
-      </div>
-
-      <section className="overview-kpis" aria-label="Key payment metrics">
-        <article>
-          <div className="overview-kpis__icon"><WalletCards size={19} aria-hidden="true" /></div>
-          <div>
-            <span>Processed volume</span>
-            <strong>{money.format(snapshot.kpis.paymentVolume)}</strong>
-            <small className="is-positive">
-              <TrendingUp size={13} aria-hidden="true" />
-              {snapshot.kpis.paymentVolumeDelta}% vs prior period
-            </small>
-          </div>
-        </article>
-        <article>
-          <div className="overview-kpis__icon"><CheckCircle2 size={19} aria-hidden="true" /></div>
-          <div>
-            <span>Approval rate</span>
-            <strong>{snapshot.kpis.approvalRate}%</strong>
-            <small className="is-positive">
-              <TrendingUp size={13} aria-hidden="true" />
-              {snapshot.kpis.approvalRateDelta}% vs prior period
-            </small>
-          </div>
-        </article>
-        <article>
-          <div className="overview-kpis__icon overview-kpis__icon--warning">
-            <ShieldAlert size={19} aria-hidden="true" />
-          </div>
-          <div>
-            <span>Manual review</span>
-            <strong>{snapshot.kpis.manualReview}</strong>
-            <small>{snapshot.kpis.manualReviewDelta}% vs prior period</small>
-          </div>
-        </article>
-        <article>
-          <div className="overview-kpis__icon overview-kpis__icon--danger">
-            <RefreshCw size={19} aria-hidden="true" />
-          </div>
-          <div>
-            <span>Open exceptions</span>
-            <strong>{snapshot.kpis.reconciliationExceptions}</strong>
-            <small>{snapshot.kpis.reconciliationExceptionsDelta}% vs prior period</small>
-          </div>
-        </article>
-      </section>
-
-      <div className="overview-layout">
-        <section className="overview-panel overview-panel--activity" aria-labelledby="activity-title">
-          <header className="overview-panel__header">
-            <div>
-              <p>Decision throughput</p>
-              <h2 id="activity-title">Payment activity</h2>
-            </div>
-            <div className="overview-legend" aria-label="Chart legend">
-              <span className="is-approved">Approved</span>
-              <span className="is-review">Review</span>
-              <span className="is-rejected">Rejected</span>
-            </div>
-          </header>
-          <div className="overview-chart" role="img" aria-label={`Payment decisions over ${snapshot.label}`}>
-            {snapshot.chartPoints.map((point) => {
-              const total = point.approved + point.review + point.rejected
-              return (
-                <div className="overview-chart__column" key={point.label}>
-                  <div className="overview-chart__value">{total}</div>
-                  <div className="overview-chart__track" style={{ height: `${Math.max(18, (total / chartMaximum) * 100)}%` }}>
-                    <span
-                      className="is-approved"
-                      style={{ height: `${(point.approved / total) * 100}%` }}
-                      title={`${point.approved} approved`}
-                    />
-                    <span
-                      className="is-review"
-                      style={{ height: `${(point.review / total) * 100}%` }}
-                      title={`${point.review} in review`}
-                    />
-                    <span
-                      className="is-rejected"
-                      style={{ height: `${(point.rejected / total) * 100}%` }}
-                      title={`${point.rejected} rejected`}
-                    />
-                  </div>
-                  <span>{point.label}</span>
-                </div>
-              )
-            })}
-          </div>
-        </section>
-
-        <section className="overview-panel overview-panel--distribution" aria-labelledby="distribution-title">
-          <header className="overview-panel__header">
-            <div>
-              <p>Current window</p>
-              <h2 id="distribution-title">Decision mix</h2>
-            </div>
-            <Activity size={18} aria-hidden="true" />
-          </header>
-          <div className="overview-distribution">
-            {data.statusDistribution.map((item) => {
-              const percentage = totalStatuses ? Math.round((item.count / totalStatuses) * 100) : 0
-              return (
-                <div key={item.label}>
-                  <span className={toneClass(item.tone)}>{item.label}</span>
-                  <strong>{item.count}</strong>
-                  <small>{percentage}%</small>
-                  <div aria-hidden="true">
-                    <span className={`is-${item.tone}`} style={{ width: `${percentage}%` }} />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-          <button type="button" className="overview-link-button" onClick={() => onNavigate('risk')}>
-            Open risk monitoring <ArrowRight size={15} aria-hidden="true" />
-          </button>
-        </section>
-
-        <section className="overview-panel overview-panel--exceptions" aria-labelledby="exceptions-title">
-          <header className="overview-panel__header">
-            <div>
-              <p>Recovery queue</p>
-              <h2 id="exceptions-title">Reconciliation exceptions</h2>
-            </div>
-            <span className="overview-count">{openCases.length} open</span>
-          </header>
-          <div className="overview-exceptions">
-            {openCases.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => onNavigate('reconciliation')}
-                aria-label={`Review reconciliation case ${item.paymentId}`}
-              >
-                <span className={`overview-severity overview-severity--${item.severity.toLowerCase()}`}>
-                  {item.severity}
-                </span>
-                <span>
-                  <strong>{item.paymentId}</strong>
-                  <small>{item.merchant}</small>
-                </span>
-                <span>
-                  <strong>{item.reason}</strong>
-                  <small><Clock3 size={12} aria-hidden="true" /> {item.age}</small>
-                </span>
-                <ArrowRight size={16} aria-hidden="true" />
-              </button>
+            {data.metrics.map((metric) => (
+              <MetricCard
+                key={metric.key}
+                metric={metric}
+                currency={data.ledgerHealth.currency}
+              />
             ))}
           </div>
-          <button type="button" className="overview-link-button" onClick={() => onNavigate('reconciliation')}>
-            Open reconciliation workbench <ArrowRight size={15} aria-hidden="true" />
-          </button>
-        </section>
 
-        <section className="overview-panel overview-panel--signals" aria-labelledby="signals-title">
-          <header className="overview-panel__header">
-            <div>
-              <p>Policy signals</p>
-              <h2 id="signals-title">Risk rule activity</h2>
-            </div>
-            <ShieldAlert size={18} aria-hidden="true" />
-          </header>
-          <div className="overview-signals">
-            {data.riskSignals.map((signal) => (
-              <div key={signal.label}>
-                <span className={`overview-signal-dot is-${signal.tone}`} aria-hidden="true" />
-                <span>
-                  <strong>{signal.label}</strong>
-                  <small>{signal.trend > 0 ? '+' : ''}{signal.trend}% from baseline</small>
-                </span>
-                <strong>{signal.count}</strong>
+          <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(280px, 1fr)' }}>
+            <section className="card">
+              <div className="card__header">
+                <div>
+                  <div className="eyebrow">Decision throughput</div>
+                  <h2 className="card__title">Payment activity</h2>
+                  <p className="card__subtitle">
+                    {data.rangeLabel} · window opened {formatDateTime(data.windowStart)}
+                  </p>
+                </div>
+                <div className="legend">
+                  {SERIES.map((series) => (
+                    <span key={series.key} className="legend__item">
+                      <span
+                        className="legend__swatch"
+                        style={{ background: series.color }}
+                        aria-hidden="true"
+                      />
+                      {series.label}
+                    </span>
+                  ))}
+                </div>
               </div>
-            ))}
-          </div>
-        </section>
+              <div className="card__body">
+                <ThroughputChart buckets={data.throughput} />
+              </div>
+            </section>
 
-        <section className="overview-panel overview-panel--payments" aria-labelledby="recent-payments-title">
-          <header className="overview-panel__header">
-            <div>
-              <p>Latest decisions</p>
-              <h2 id="recent-payments-title">Recent payments</h2>
-            </div>
-            <button type="button" className="overview-link-button" onClick={() => onNavigate('payments')}>
-              View all <ArrowRight size={15} aria-hidden="true" />
-            </button>
-          </header>
-          <div className="overview-table-wrap">
-            <table aria-label="Recent payments">
-              <thead>
-                <tr>
-                  <th>Payment</th>
-                  <th>Recipient</th>
-                  <th>Amount</th>
-                  <th>Decision</th>
-                  <th>Created</th>
-                  <th><span className="sr-only">Action</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentPayments.map((payment) => (
-                  <tr key={payment.id}>
-                    <td><code>{payment.id}</code></td>
-                    <td>
-                      <strong>{payment.recipient}</strong>
-                      <small>{payment.description}</small>
-                    </td>
-                    <td>{exactMoney.format(payment.amount)}</td>
-                    <td><StatusBadge payment={payment} /></td>
-                    <td>{formatTime(payment.createdAt)}</td>
-                    <td>
-                      <button
-                        type="button"
-                        onClick={() => onSelectPayment(payment.id)}
-                        aria-label={`View payment ${payment.id}`}
-                      >
-                        <ArrowRight size={16} aria-hidden="true" />
-                      </button>
-                    </td>
-                  </tr>
+            <section className="card">
+              <div className="card__header">
+                <div>
+                  <div className="eyebrow">Current window</div>
+                  <h2 className="card__title">Decision mix</h2>
+                </div>
+                <Activity size={16} className="text-tertiary" aria-hidden="true" />
+              </div>
+              <div className="card__body stack">
+                {data.decisionMix.map((slice) => (
+                  <Meter
+                    key={slice.key}
+                    label={slice.label}
+                    value={slice.count}
+                    total={data.decisionMix.reduce((sum, item) => sum + item.count, 0)}
+                    color={
+                      SERIES.find((series) => series.label === slice.label)?.color ??
+                      'var(--series-pending)'
+                    }
+                  />
                 ))}
-              </tbody>
-            </table>
+              </div>
+              <div className="card__footer">
+                <span>Risk rule activity</span>
+                <button
+                  type="button"
+                  className="btn btn--quiet"
+                  onClick={() => onNavigate('risk')}
+                >
+                  Open risk
+                  <ArrowRight size={14} aria-hidden="true" />
+                </button>
+              </div>
+            </section>
           </div>
-        </section>
-      </div>
 
-      <footer className="overview-page__health">
-        <span><CheckCircle2 size={15} aria-hidden="true" /> Snapshot integrity verified</span>
-        <span><CheckCircle2 size={15} aria-hidden="true" /> {balancedJournalCount} balanced journals verified</span>
-        <span><CheckCircle2 size={15} aria-hidden="true" /> {data.reconciliationCases.length} reconciliation cases tracked</span>
-        <span><CreditCard size={15} aria-hidden="true" /> {data.payments.length} payments in current dataset</span>
-      </footer>
+          <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(280px, 1fr)' }}>
+            <section className="card card--flush">
+              <div className="card__header">
+                <div>
+                  <div className="eyebrow">Recovery queue</div>
+                  <h2 className="card__title">Reconciliation exceptions</h2>
+                  <p className="card__subtitle">
+                    Payments whose status is still pending after their initiation committed.
+                  </p>
+                </div>
+                {data.exceptions.length > 0 ? (
+                  <span className="pill pill--warning">{data.exceptions.length} open</span>
+                ) : null}
+              </div>
+              {data.exceptions.length === 0 ? (
+                <EmptyState
+                  icon={<ShieldAlert size={20} aria-hidden="true" />}
+                  title="No open exceptions"
+                  body="Every payment in the ledger has reached a final status. The scenario lab can create a timeout if you want to watch a repair."
+                  action={
+                    <button
+                      type="button"
+                      className="btn btn--secondary"
+                      onClick={() => onNavigate('scenario-lab')}
+                    >
+                      Open scenario lab
+                    </button>
+                  }
+                />
+              ) : (
+                <div className="table-scroll">
+                  <table className="table table--interactive">
+                    <thead>
+                      <tr>
+                        <th>Payment</th>
+                        <th>Recipient</th>
+                        <th className="numeric">Amount</th>
+                        <th>Journal</th>
+                        <th>Age</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.exceptions.map((payment) => (
+                        <tr
+                          key={payment.id}
+                          onClick={() => onSelectPayment(payment.id)}
+                          tabIndex={0}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') onSelectPayment(payment.id)
+                          }}
+                        >
+                          <td>
+                            <span className="mono">{payment.reference}</span>
+                          </td>
+                          <td className="truncate">{payment.recipient.displayName}</td>
+                          <td className="numeric">
+                            <Money amountMinor={payment.amountMinor} currency={payment.currency} />
+                          </td>
+                          <td>
+                            {payment.journalPosted ? (
+                              <SeverityPill severity="High" />
+                            ) : (
+                              <StatusPill status="PENDING" label="No journal" />
+                            )}
+                          </td>
+                          <td className="text-secondary">{formatRelative(payment.createdAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div className="card__footer">
+                <span>Repairs are compare-and-swap guarded</span>
+                <button
+                  type="button"
+                  className="btn btn--quiet"
+                  onClick={() => onNavigate('reconciliation')}
+                >
+                  Open workbench
+                  <ArrowRight size={14} aria-hidden="true" />
+                </button>
+              </div>
+            </section>
+
+            <div className="stack">
+              <section className="card">
+                <div className="card__header">
+                  <div>
+                    <div className="eyebrow">Policy signals</div>
+                    <h2 className="card__title">Risk rule activity</h2>
+                  </div>
+                </div>
+                <div className="card__body stack">
+                  {data.signalActivity.every((signal) => signal.count === 0) ? (
+                    <p className="text-footnote text-secondary">
+                      No risk rule fired in this window.
+                    </p>
+                  ) : (
+                    data.signalActivity.map((signal) => (
+                      <Meter
+                        key={signal.code}
+                        label={signal.label}
+                        value={signal.count}
+                        total={Math.max(
+                          ...data.signalActivity.map((item) => item.count),
+                          1,
+                        )}
+                        color="var(--accent)"
+                        trailing={
+                          <>
+                            {formatCount(signal.count)}{' '}
+                            <span className="text-tertiary">
+                              {signal.previousCount === 0
+                                ? 'new'
+                                : `was ${formatCount(signal.previousCount)}`}
+                            </span>
+                          </>
+                        }
+                      />
+                    ))
+                  )}
+                </div>
+              </section>
+
+              <section className="card">
+                <div className="card__header">
+                  <div>
+                    <div className="eyebrow">Posting integrity</div>
+                    <h2 className="card__title">Ledger health</h2>
+                  </div>
+                  <BookOpen size={16} className="text-tertiary" aria-hidden="true" />
+                </div>
+                <div className="card__body">
+                  <dl className="datalist">
+                    <dt>Journals</dt>
+                    <dd>{formatCount(data.ledgerHealth.journals)}</dd>
+                    <dt>Balanced</dt>
+                    <dd>
+                      {formatCount(data.ledgerHealth.balancedJournals)}{' '}
+                      <span className="text-tertiary">
+                        {formatPercent(
+                          data.ledgerHealth.journals === 0
+                            ? 100
+                            : (data.ledgerHealth.balancedJournals /
+                                data.ledgerHealth.journals) *
+                                100,
+                          1,
+                        )}
+                      </span>
+                    </dd>
+                    <dt>Posted value</dt>
+                    <dd>
+                      {formatMoney(
+                        data.ledgerHealth.postedVolumeMinor,
+                        data.ledgerHealth.currency,
+                      )}
+                    </dd>
+                    <dt>Last posting</dt>
+                    <dd>{formatRelative(data.ledgerHealth.lastPostedAt)}</dd>
+                  </dl>
+                </div>
+                <div className="card__footer">
+                  <span>
+                    {data.ledgerHealth.balancedJournals === data.ledgerHealth.journals
+                      ? 'Every journal balances'
+                      : 'Unbalanced journals present'}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn--quiet"
+                    onClick={() => onNavigate('ledger')}
+                  >
+                    Open ledger
+                    <ArrowRight size={14} aria-hidden="true" />
+                  </button>
+                </div>
+              </section>
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {loading && !data ? <LoadingRows rows={4} height={120} /> : null}
+    </main>
+  )
+}
+
+function ThroughputChart({ buckets }: { readonly buckets: readonly ThroughputBucket[] }) {
+  const peak = Math.max(
+    1,
+    ...buckets.map((bucket) => bucket.approved + bucket.review + bucket.rejected + bucket.pending),
+  )
+
+  if (buckets.every((bucket) => bucket.approved + bucket.review + bucket.rejected + bucket.pending === 0)) {
+    return (
+      <EmptyState
+        title="No payments in this window"
+        body="Widen the reporting window, or create a payment from the payments page."
+      />
+    )
+  }
+
+  return (
+    <div>
+      <div className="bars">
+        {buckets.map((bucket) => {
+          const total = bucket.approved + bucket.review + bucket.rejected + bucket.pending
+          return (
+            <div
+              key={bucket.startsAt}
+              className="bars__column"
+              title={`${bucket.label}: ${total} payment${total === 1 ? '' : 's'}, ${formatMoneyCompact(bucket.volumeMinor)}`}
+            >
+              <div className="bars__stack">
+                {SERIES.map((series) => {
+                  const value = bucket[series.key]
+                  if (value === 0) return null
+                  return (
+                    <div
+                      key={series.key}
+                      className={`bars__segment bars__segment--${series.className}`}
+                      style={{ height: `${(value / peak) * 100}%` }}
+                    />
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <div className="bars" style={{ height: 'auto', paddingTop: 0 }}>
+        {buckets.map((bucket, index) => (
+          <div key={bucket.startsAt} className="bars__label">
+            {buckets.length > 14 && index % 3 !== 0 ? '' : bucket.label}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
-
-export default OverviewPage

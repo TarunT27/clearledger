@@ -37,10 +37,13 @@ class ReconciliationServiceTest {
     @Mock PaymentRepository payments;
     @Mock LedgerService ledger;
     @Mock AuditService audit;
+    @Mock ReconciliationRunRepository runs;
     private ReconciliationService service;
 
     @BeforeEach
     void setUp() {
+        when(runs.save(any(ReconciliationRunEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         service =
                 new ReconciliationService(
                         payments,
@@ -48,6 +51,7 @@ class ReconciliationServiceTest {
                         new JournalVerifier(),
                         new ReconciliationPlanner(),
                         audit,
+                        runs,
                         CLOCK,
                         new SimpleMeterRegistry());
     }
